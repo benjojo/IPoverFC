@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -52,7 +51,7 @@ $1 = {
 
 */
 
-func registerDevice() {
+func registerDevice() (int, error) {
 	fd, err := unix.Open("/dev/scst_user", unix.O_RDWR, 0)
 	if err != nil {
 		log.Fatal("Starting Error; /dev/scst_user -> ", err.Error())
@@ -81,13 +80,20 @@ func registerDevice() {
 		sgv_name:   [50]byte{0},
 	}
 
-	SCST_USER_REGISTER_DEVICE(fd, &def)
-	time.Sleep(time.Hour)
+	return fd, SCST_USER_REGISTER_DEVICE(fd, &def)
 }
 
-func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) {
+func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) error {
 	err := ioctl(fd, 1084257537, uintptr(unsafe.Pointer(def)))
 	log.Printf("eee %v", err)
+	return err
+}
+
+func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) error {
+	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
+	log.Printf("ooo %v", err)
+	return err
+
 }
 
 func ioctl(fd int, req uint, arg uintptr) (err error) {
