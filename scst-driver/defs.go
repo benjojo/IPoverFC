@@ -316,3 +316,76 @@ type raw_scst_user_reply_cmd_result struct {
 	subcode uint32
 	result  int32
 }
+
+/*
+struct scst_user_scsi_cmd_reply_exec {
+	int32_t resp_data_len;
+	aligned_u64 pbuf;
+
+#define SCST_EXEC_REPLY_BACKGROUND	0
+#define SCST_EXEC_REPLY_COMPLETED	1
+#define SCST_EXEC_REPLY_DO_WRITE_SAME	2
+	uint8_t reply_type;
+
+	uint8_t status;
+	union {
+		struct {
+			uint8_t sense_len;
+			aligned_u64 psense_buffer;
+		};
+		struct {
+			uint16_t ws_descriptors_len;
+			aligned_u64 ws_descriptors;
+		};
+	};
+};
+*/
+
+const (
+	SCST_EXEC_REPLY_BACKGROUND    = 0
+	SCST_EXEC_REPLY_COMPLETED     = 1
+	SCST_EXEC_REPLY_DO_WRITE_SAME = 2
+)
+
+type raw_scst_user_reply_cmd_exec_reply_sense struct {
+	cmd_h         uint32
+	subcode       uint32
+	resp_data_len int32
+	fake          int32
+	// do I need to add a fake int32 here to align?
+	pbuf          uintptr
+	reply_type    uint8
+	status        uint8
+	sense_len     uint8
+	psense_buffer uintptr
+
+	/*
+		union {
+			struct {
+				uint8_t sense_len;
+				aligned_u64 psense_buffer;
+			};
+		};
+	*/
+}
+
+type raw_scst_user_reply_cmd_exec_reply_descriptors struct {
+	cmd_h         uint32
+	subcode       uint32
+	resp_data_len int32
+	// fake          int32
+	// do I need to add a fake int32 here to align?
+	pbuf               uintptr
+	reply_type         uint8
+	status             uint8
+	ws_descriptors_len uint16
+	ws_descriptors     uintptr
+
+	/*
+			struct {
+				uint16_t ws_descriptors_len;
+				aligned_u64 ws_descriptors;
+			};
+		};
+	*/
+}

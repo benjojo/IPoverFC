@@ -30,6 +30,10 @@ func pollForStuff(fd int) interface{} {
 		case SCST_USER_EXEC:
 			// TODO: This is the real biz
 			log.Printf("SCST_USER_EXEC")
+			// processExecCmd(raw_scst_user_get_cmd_preply)
+			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
+			def.preply = processExecCmd(lol)
+
 		case SCST_USER_ALLOC_MEM:
 			// TODO:
 			log.Printf("SCST_USER_ALLOC_MEM")
