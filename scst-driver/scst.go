@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -92,6 +93,9 @@ func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) error {
 func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) error {
 	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
 	log.Printf("ooo %v", err)
+	if err != nil {
+		time.Sleep(time.Second)
+	}
 	return err
 }
 

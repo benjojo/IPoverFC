@@ -222,14 +222,14 @@ type raw_scst_user_get_cmd_scsi_cmd_exec struct {
 	cdb_len uint16
 	// lba - LBA of the command, if any
 	lba int64
-	// data_len - command's data length. Could be dierent from buen for commands like VERIFY,  which transfer dierent amount of data, than process, or even none of them
+	// data_len - command's data length. Could be different from buen for commands like VERIFY,  which transfer different amount of data, than process, or even none of them
 	data_len int64
-	// bufflen - command's buer length
-	bufflen int8
-	// alloc_len - command's buer length, which should be allocated, if pbuf is 0 and the command requires data transfer
-	alloc_len int8
-	// pbuf - pointer to command's data buer or 0 for SCSI commands without data transfer.
-	pbuf int64
+	// bufflen - command's buffer length
+	bufflen int32
+	// alloc_len - command's buffer length, which should be allocated, if pbuf is 0 and the command requires data transfer
+	alloc_len int32
+	// pbuf - pointer to command's data buffer or 0 for SCSI commands without data transfer.
+	pbuf uintptr
 	// queue_type - SCSI task attribute (queue type)
 	queue_type uint8
 	// data_direction - command's data ow direction, one of SCST_DATA_* constants
@@ -238,23 +238,24 @@ type raw_scst_user_get_cmd_scsi_cmd_exec struct {
 	//  SCST_USER_SUBCOMMAND - set if the command is a partial subcommand
 	//  SCST_USER_SUBCOMMAND_FINAL - set if the subcommand is a nal one
 	partial uint8
-	// • timeout - CDB execution timeout
-	timeout int8
-	// • p_out_buf - for bidirectional commands pointer on command's OUT, i.e. from initiator to target,
-	// data buer or 0 for SCSI commands without data transfer
-	p_out_buf int64
-	// • out_buen - for bidirectional commands command's OUT, i.e. from initiator to target, buer length
+	// timeout - CDB execution timeout
+	timeout int32
+	// p_out_buf - for bidirectional commands pointer on command's OUT, i.e. from initiator to target,
+	// data buffer or 0 for SCSI commands without data transfer
+	p_out_buf uintptr
+	// out_bufflen - for bidirectional commands command's OUT, i.e. from initiator to target, buffer length
 	out_bufflen int32
-	// • sn - command's SN, which might be used for task management
+	// sn - command's SN, which might be used for task management
 	sn uint32
-	// • parent_cmd_h - has the same unique value for all partial data transfers subcommands of one original
+	// parent_cmd_h - has the same unique value for all partial data transfers subcommands of one original
 	// (parent) command
 	parent_cmd_h uint32
-	// • parent_cmd_data_len - for partial data transfers subcommand has the size of the overall data
+	// parent_cmd_data_len - for partial data transfers subcommand has the size of the overall data
 	// transfer of the original (parent) command
 	parent_cmd_data_len int32
-	// • partial_oset - has oset of the subcommand in the original (parent) command
+	// partial_offset - has offset of the subcommand in the original (parent) command
 	partial_offset uint32
+	padding        [16 * 32]byte // I'm scared of the kernel, I want to not accidently overshoot
 }
 
 /*
@@ -347,11 +348,22 @@ const (
 	SCST_EXEC_REPLY_DO_WRITE_SAME = 2
 )
 
+type raw_scst_user_reply_cmd_exec_reply struct {
+	cmd_h         uint32
+	subcode       uint32
+	resp_data_len int32
+	// fake          int32
+	// do I need to add a fake int32 here to align?
+	pbuf       uintptr
+	reply_type uint8
+	status     uint8
+}
+
 type raw_scst_user_reply_cmd_exec_reply_sense struct {
 	cmd_h         uint32
 	subcode       uint32
 	resp_data_len int32
-	fake          int32
+	// fake          int32
 	// do I need to add a fake int32 here to align?
 	pbuf          uintptr
 	reply_type    uint8
@@ -389,3 +401,16 @@ type raw_scst_user_reply_cmd_exec_reply_descriptors struct {
 		};
 	*/
 }
+
+const (
+	DEVICE_TYPE_DISK           = 0x00
+	DEVICE_TYPE_TAPE           = 0x01
+	DEVICE_TYPE_PROCESSOR      = 0x03 /* HP scanners use this */
+	DEVICE_TYPE_WORM           = 0x04 /* Treated as ROM by our system */
+	DEVICE_TYPE_ROM            = 0x05
+	DEVICE_TYPE_SCANNER        = 0x06
+	DEVICE_TYPE_MOD            = 0x07 /* Magneto-optical disk treated as TYPE_DISK */
+	DEVICE_TYPE_MEDIUM_CHANGER = 0x08
+	DEVICE_TYPE_ENCLOSURE      = 0x0d /* Enclosure Services Device */
+	DEVICE_TYPE_NO_LUN         = 0x7f
+)

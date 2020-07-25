@@ -2,75 +2,173 @@ package main
 
 import (
 	"log"
+	"runtime"
 	"unsafe"
 )
 
-func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) uintptr {
+func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply_cmd_exec_reply {
+	/*
+		(gdb) print *cmd
+		$4 = {
+		  sess_h = 18446614906040681408,
+		  cdb = '\000' <repeats 15 times>,
+		  cdb_len = 6,
+		  lba = 0,
+		  data_len = 0,
+		  bufflen = 0,
+		  alloc_len = 0,
+		  pbuf = 0,
+		  queue_type = 3 '\003',
+		  data_direction = 4 '\004',
+		  partial = 0 '\000',
+		  timeout = 10,
+		  p_out_buf = 0,
+		  out_bufflen = 0,
+		  sn = 0,
+		  parent_cmd_h = 0,
+		  parent_cmd_data_len = 0,
+		  partial_offset = 0
+		}
+		(gdb) print *reply
+		$5 = {
+			resp_data_len = 0,
+			pbuf = 0,
+			reply_type = 1 '\001',
+			status = 0 '\000',
+			{
+				{
+					sense_len = 0 '\000',
+					psense_buffer = 0
+				},
+				{
+					ws_descriptors_len = 0,
+					ws_descriptors = 0
+				}
+			}
+		}
+
+	*/
 	log.Printf("------> Timeout %d \n%#v", in.timeout, in)
 	ATAopCode := in.cdb[0]
 
-	var emptyByte [1]byte
+	// var emptyByte [1]byte
 
-	reply := raw_scst_user_reply_cmd_exec_reply_sense{
+	reply := raw_scst_user_reply_cmd_exec_reply{
 		cmd_h:         in.cmd_h,
 		subcode:       in.subcode,
 		reply_type:    SCST_EXEC_REPLY_COMPLETED,
 		resp_data_len: 0,
-		pbuf:          uintptr(unsafe.Pointer(&emptyByte)),
-		status:        SAM_STAT_GOOD,
-		psense_buffer: uintptr(unsafe.Pointer(&emptyByte)),
-		sense_len:     0,
+		// pbuf:          uintptr(unsafe.Pointer(&emptyByte)),
+		pbuf:   0,
+		status: SAM_STAT_GOOD,
+		// psense_buffer: uintptr(unsafe.Pointer(&emptyByte)),
+		// sense_len:     0,
 	}
+
+	if in.data_direction == 2 { // READ
+		reply.resp_data_len = in.bufflen
+	} else {
+		log.Printf("FUCK IT@S A WRITE RUN")
+	}
+
+	log.Printf("------> Opcode %x", ATAopCode)
 
 	switch ATAopCode {
 	case ATA_TEST_UNIT_READY:
-		/*
-			(gdb) print *cmd
-			$4 = {
-			  sess_h = 18446614906040681408,
-			  cdb = '\000' <repeats 15 times>,
-			  cdb_len = 6,
-			  lba = 0,
-			  data_len = 0,
-			  bufflen = 0,
-			  alloc_len = 0,
-			  pbuf = 0,
-			  queue_type = 3 '\003',
-			  data_direction = 4 '\004',
-			  partial = 0 '\000',
-			  timeout = 10,
-			  p_out_buf = 0,
-			  out_bufflen = 0,
-			  sn = 0,
-			  parent_cmd_h = 0,
-			  parent_cmd_data_len = 0,
-			  partial_offset = 0
-			}
-			(gdb) print *reply
-			$5 = {
-				resp_data_len = 0,
-				pbuf = 0,
-				reply_type = 1 '\001',
-				status = 0 '\000',
-				{
-					{
-						sense_len = 0 '\000',
-						psense_buffer = 0
-					},
-					{
-						ws_descriptors_len = 0,
-						ws_descriptors = 0
-					}
-				}
-			}
-
-		*/
+		log.Printf("ATA_TEST_UNIT_READY")
 		// Do nothing???
+	case ATA_INQUIRY:
+		log.Printf("ATA_INQUIRY")
+
+		handleATAinquiry(in, &reply)
+		// Haha oh my fucking god.
+
 	default:
 		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
 	}
 
-	return uintptr(unsafe.Pointer(&reply)) // lol total segfault bait
+	runtime.KeepAlive(reply)
+	// return uintptr(unsafe.Pointer(&reply)) // lol total segfault bait
+	return reply
+}
+
+func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply) {
+	var finalOutput = [128]byte{0}
+	output := make([]byte, in.bufflen)
+	resp_len := 0
+
+	output[0] = DEVICE_TYPE_DISK // sure, i'm a uhhh disk
+	// Readers note: I really did consider being a DEVICE_TYPE_SCANNER
+	// but I have no real desire to figure out what enumeration is needed
+	// for that.
+	if (in.cdb[1] & 0x01) > 1 {
+
+		if 0 == in.cdb[2] { /* supported vital product data pages */
+			// Aka, "Hi frien, what do you support"
+			output[3] = 5
+			output[4] = 0x0  /* this page */
+			output[5] = 0x80 /* unit serial number */
+			output[6] = 0x83 /* device identification */
+			output[7] = 0xB0 /* block limits */
+			output[8] = 0xB1 /* block device characteristics */
+			resp_len = int(uint8(output[3]) + 6)
+
+		} else if 0x80 == in.cdb[2] { /* unit serial number */
+
+		} else if 0x83 == in.cdb[2] { /* device identification */
+
+		} else if 0xB0 == in.cdb[2] { /* Block Limits */
+
+		} else if 0xB1 == in.cdb[2] { /* Block Device Characteristics */
+
+		} else {
+			// unsupported
+		}
+
+	} else {
+		// Really basic stuff:
+
+		if in.cdb[2] != 0 {
+			// TRACE_DBG("INQUIRY: Unsupported page %x", cmd->cdb[2]);
+			// PRINT_INFO("INQUIRY: Unsupported page %x", cmd->cdb[2]);
+			// set_cmd_error(vcmd,
+			//     SCST_LOAD_SENSE(scst_sense_invalid_field_in_cdb));
+			// goto out;
+			log.Printf("FUUUUUUUUUUUUUUUUUUCK Unsupported INQ PAGE")
+		}
+
+		output[2] = 6    /* Device complies to SPC-4 */
+		output[3] = 0x12 /* HiSup + data in format specified in SPC */
+		output[4] = 31   /* n - 4 = 35 - 4 = 31 for full 36 byte data */
+		output[6] = 1    /* MultiP 1 */
+		output[7] = 2    /* CMDQUE 1, BQue 0 => commands queuing supported */
+
+		copy(output[8:], []byte("xXxBCxXx"))
+		/* 8 byte ASCII Vendor Identification of the target - left aligned */
+		// memcpy(&buf[8], VENDOR, 8);
+
+		/* 16 byte ASCII Product Identification of the target - left aligned */
+		copy(output[16:], []byte("                "))
+		copy(output[16:], []byte("YOLO"))
+		// memset(&buf[16], ' ', 16);
+		// len = min(strlen(dev->name), (size_t)16);
+		// memcpy(&buf[16], dev->name, len);
+
+		/* 4 byte ASCII Product Revision Level of the target - left aligned */
+		// memcpy(&buf[32], FIO_REV, 4);
+		copy(output[16:], []byte("350 "))
+
+		resp_len = int(output[4]) + 5
+
+		// */
+	}
+
+	log.Printf("debug: resp_len = %d", resp_len)
+
+	copy(finalOutput[:], output[:])
+	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	reply.resp_data_len = int32(resp_len)
+	runtime.KeepAlive(finalOutput)
 }
 
 const (

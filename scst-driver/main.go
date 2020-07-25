@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"time"
 	"unsafe"
 )
 
@@ -18,13 +17,29 @@ func main() {
 
 func pollForStuff(fd int) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
+	var def_exec *raw_scst_user_get_cmd_scsi_cmd_exec
+
+	useExecBuffer := false
 
 	for {
-		log.Printf("ioctl")
 
-		SCST_USER_REPLY_AND_GET_CMD(fd,
-			&def)
+		if useExecBuffer {
+			useExecBuffer = false
+			log.Printf("exec ioctl")
+
+			SCST_USER_REPLY_AND_GET_CMD_ON_EXEC(fd,
+				def_exec)
+			def = *(*raw_scst_user_get_cmd_preply)(unsafe.Pointer(&def_exec))
+			// lmao jesus ben
+		} else {
+			log.Printf("ioctl")
+
+			SCST_USER_REPLY_AND_GET_CMD(fd,
+				&def)
+		}
+
 		log.Printf("Entering Switch")
+		def.preply = 0
 
 		switch def.subcode {
 		case SCST_USER_EXEC:
@@ -32,7 +47,13 @@ func pollForStuff(fd int) interface{} {
 			log.Printf("SCST_USER_EXEC")
 			// processExecCmd(raw_scst_user_get_cmd_preply)
 			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
-			def.preply = processExecCmd(lol)
+			log.Printf("SCST_USER_EXEC -> %#v", lol)
+
+			reply := processExecCmd(lol)
+			def.preply = uintptr(unsafe.Pointer(&reply))
+			// def = def2
+			// def_exec = lol
+			// useExecBuffer = true
 
 		case SCST_USER_ALLOC_MEM:
 			// TODO:
@@ -79,7 +100,7 @@ func pollForStuff(fd int) interface{} {
 			def.preply = uintptr(unsafe.Pointer(&reply))
 		}
 
-		time.Sleep(time.Second)
+		// time.Sleep(time.Second)
 	}
 	/*
 	   (gdb) print cmd
