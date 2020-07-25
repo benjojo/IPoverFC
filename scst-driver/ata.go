@@ -92,8 +92,37 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply
 	return reply
 }
 
+func alignTheBuffer(ptr uintptr) int {
+	// AAAAAAAAAAAAAAAAAAA, NOoooOOoOoOOoO you can't possibly do this ben?
+
+	// Well I need to because otherwise I will get page alignment errors from the module:
+	// ***ERROR***: Supplied pbuf c00003bcc8 isn't page aligned
+
+	// So we are just going to take a random roll of the PAGE_SIZE dice
+
+	// [00:13:05] ben@metropolis:~$ getconf PAGE_SIZE
+	// 4096
+
+	// Then overAllocate by a lot, and provide a offset to use to the underlying application
+
+	// lol.
+
+	offset := int(ptr % 4096)
+	offset2 := int(offset-4096) * -1
+	offset3 := uintptr(offset2)
+
+	if (ptr+(offset3))%4096 != 0 {
+		log.Fatalf("Nope, try again\nA: %d\nB:%d\n%d", ptr, ptr+(offset3), (ptr+(ptr%4096))%4096)
+	} else {
+		log.Printf("Buf debug\nA: %d (%x)\nB:%d (%x)\n%d", ptr, ptr, ptr+(offset3), ptr+(offset3), (ptr+(offset3))%4096)
+	}
+
+	return int(offset3)
+}
+
 func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply) {
-	var finalOutput = [128]byte{0}
+	var finalOutput [8192]byte
+
 	output := make([]byte, in.bufflen)
 	resp_len := 0
 
@@ -175,9 +204,15 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 
 	log.Printf("debug: resp_len = %d", resp_len)
 
-	copy(finalOutput[:], output[:])
 	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	finalOutputOffset := alignTheBuffer(in.pbuf)
+
+	copy(finalOutput[finalOutputOffset:], output[:])
+
+	in.pbuf += uintptr(finalOutputOffset)
+	reply.pbuf += uintptr(finalOutputOffset)
+
 	reply.resp_data_len = int32(resp_len)
 	runtime.KeepAlive(finalOutput)
 }
