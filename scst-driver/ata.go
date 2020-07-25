@@ -102,9 +102,12 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 	// but I have no real desire to figure out what enumeration is needed
 	// for that.
 	if (in.cdb[1] & 0x01) > 1 {
+		log.Printf("Inquire 1")
 
 		if 0 == in.cdb[2] { /* supported vital product data pages */
 			// Aka, "Hi frien, what do you support"
+			log.Printf("Inquire 2")
+
 			output[3] = 5
 			output[4] = 0x0  /* this page */
 			output[5] = 0x80 /* unit serial number */
@@ -114,19 +117,26 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 			resp_len = int(uint8(output[3]) + 6)
 
 		} else if 0x80 == in.cdb[2] { /* unit serial number */
+			log.Printf("Inquire 3")
 
 		} else if 0x83 == in.cdb[2] { /* device identification */
+			log.Printf("Inquire 4")
 
 		} else if 0xB0 == in.cdb[2] { /* Block Limits */
+			log.Printf("Inquire 5")
 
 		} else if 0xB1 == in.cdb[2] { /* Block Device Characteristics */
+			log.Printf("Inquire 6")
 
 		} else {
+			log.Printf("Inquire 7")
+
 			// unsupported
 		}
 
 	} else {
 		// Really basic stuff:
+		log.Printf("Inquire 8")
 
 		if in.cdb[2] != 0 {
 			// TRACE_DBG("INQUIRY: Unsupported page %x", cmd->cdb[2]);
@@ -167,6 +177,7 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 
 	copy(finalOutput[:], output[:])
 	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 	reply.resp_data_len = int32(resp_len)
 	runtime.KeepAlive(finalOutput)
 }

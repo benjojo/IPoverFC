@@ -352,7 +352,7 @@ type raw_scst_user_reply_cmd_exec_reply struct {
 	cmd_h         uint32
 	subcode       uint32
 	resp_data_len int32
-	// fake          int32
+	fake          int32
 	// do I need to add a fake int32 here to align?
 	pbuf       uintptr
 	reply_type uint8

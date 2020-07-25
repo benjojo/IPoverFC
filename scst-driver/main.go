@@ -17,26 +17,13 @@ func main() {
 
 func pollForStuff(fd int) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
-	var def_exec *raw_scst_user_get_cmd_scsi_cmd_exec
-
-	useExecBuffer := false
 
 	for {
 
-		if useExecBuffer {
-			useExecBuffer = false
-			log.Printf("exec ioctl")
+		log.Printf("ioctl")
 
-			SCST_USER_REPLY_AND_GET_CMD_ON_EXEC(fd,
-				def_exec)
-			def = *(*raw_scst_user_get_cmd_preply)(unsafe.Pointer(&def_exec))
-			// lmao jesus ben
-		} else {
-			log.Printf("ioctl")
-
-			SCST_USER_REPLY_AND_GET_CMD(fd,
-				&def)
-		}
+		SCST_USER_REPLY_AND_GET_CMD(fd,
+			&def)
 
 		log.Printf("Entering Switch")
 		def.preply = 0
@@ -53,7 +40,6 @@ func pollForStuff(fd int) interface{} {
 			def.preply = uintptr(unsafe.Pointer(&reply))
 			// def = def2
 			// def_exec = lol
-			// useExecBuffer = true
 
 		case SCST_USER_ALLOC_MEM:
 			// TODO:
