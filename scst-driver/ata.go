@@ -316,7 +316,7 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 
 	copy(finalOutput[finalOutputOffset:], output[:])
 
-	in.pbuf += uintptr(finalOutputOffset)
+	// in.pbuf += uintptr(finalOutputOffset)
 	reply.pbuf += uintptr(finalOutputOffset)
 
 	reply.resp_data_len = int32(resp_len)
