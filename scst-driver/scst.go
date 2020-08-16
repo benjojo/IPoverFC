@@ -94,6 +94,7 @@ func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) erro
 	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
 	log.Printf("ooo %v", err)
 	if err != nil {
+		log.Printf("======================================= %v =======================================", err)
 		time.Sleep(time.Second)
 	}
 	return err

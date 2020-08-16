@@ -15,6 +15,12 @@ func main() {
 	pollForStuff(fd)
 }
 
+var upcomingBug = false
+
+func trap_me() {
+	log.Print("trap")
+}
+
 func pollForStuff(fd int) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
 
@@ -22,6 +28,9 @@ func pollForStuff(fd int) interface{} {
 
 		log.Printf("ioctl")
 
+		if upcomingBug {
+			trap_me()
+		}
 		SCST_USER_REPLY_AND_GET_CMD(fd,
 			&def)
 
@@ -34,10 +43,10 @@ func pollForStuff(fd int) interface{} {
 			log.Printf("SCST_USER_EXEC")
 			// processExecCmd(raw_scst_user_get_cmd_preply)
 			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
-			log.Printf("SCST_USER_EXEC -> %#v", lol)
+			// log.Printf("SCST_USER_EXEC -> %#v", lol)
 
 			reply := processExecCmd(lol)
-			def.preply = uintptr(unsafe.Pointer(&reply))
+			def.preply = uintptr(unsafe.Pointer(reply))
 			// def = def2
 			// def_exec = lol
 

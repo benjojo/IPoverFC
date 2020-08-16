@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply_cmd_exec_reply {
+func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
 	/*
 		(gdb) print *cmd
 		$4 = {
@@ -48,12 +48,17 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply
 		}
 
 	*/
-	log.Printf("------> Timeout %d \n%#v", in.timeout, in)
+	// log.Printf("\ncmd_h:%x, subcode:%x, cdb (%d):%#v, lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d"
+
+	// log.Printf("------> Timeout %d \n%#v", in.timeout, in)
+	log.Printf("cmd_h:%x, subcode:%x lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d\ncdb (%d):%#v",
+		in.cmd_h, in.subcode, in.lba, in.data_len, in.bufflen, in.alloc_len, in.pbuf, in.queue_type, in.data_direction, in.partial, in.timeout, in.p_out_buf, in.out_bufflen, in.cdb_len, in.cdb)
+
 	ATAopCode := in.cdb[0]
 
 	// var emptyByte [1]byte
 
-	reply := raw_scst_user_reply_cmd_exec_reply{
+	reply := raw_scst_user_reply_cmd_exec_reply_sense{
 		cmd_h:         in.cmd_h,
 		subcode:       in.subcode,
 		reply_type:    SCST_EXEC_REPLY_COMPLETED,
@@ -67,6 +72,8 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply
 
 	if in.data_direction == 2 { // READ
 		reply.resp_data_len = in.bufflen
+	} else if in.data_direction == 4 { // None
+		reply.resp_data_len = 0
 	} else {
 		log.Printf("FUCK IT@S A WRITE RUN")
 	}
@@ -82,14 +89,178 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) raw_scst_user_reply
 
 		handleATAinquiry(in, &reply)
 		// Haha oh my fucking god.
-
+	case ATA_READ_CAPACITY:
+		log.Printf("ATA_READ_CAPACITY")
+		handleATAreadCapacity(in, &reply)
+		upcomingBug = true
+	case ATA_MODE_SENSE:
+		log.Printf("ATA_SENSE")
+		handleATAsense(in, &reply)
 	default:
 		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
+		// reply.sense_len
+
+		sense := [252]byte{}
+
+		sense[0] = 0x70 /* Error Code			*/
+		sense[2] = 0x05 /* Sense Key			*/ //  ILLEGAL_REQUEST
+		// sense[2] = 0x04 /* Sense Key			*/ //  HARDWARE_ERROR
+		sense[7] = 0x0a  /* Additional Sense Length	*/
+		sense[12] = 0x20 /* ASC				*/
+		// sense[12] = 0x44 /* ASC				*/
+		sense[13] = 0x00 /* ASCQ				*/
+		reply.sense_len = 18
+		reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
+		reply.resp_data_len = 0
+		reply.pbuf = 0
+		// var fO [8192]byte
+		// reply.pbuf = uintptr(unsafe.Pointer(&fO))
+		// finalOutputOffset := alignTheBuffer(reply.pbuf)
+		// reply.pbuf += uintptr(finalOutputOffset)
+		// reply.resp_data_len = 0
+
+		reply.status = SAM_STAT_CHECK_CONDITION
+
+		log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 	}
 
 	runtime.KeepAlive(reply)
 	// return uintptr(unsafe.Pointer(&reply)) // lol total segfault bait
-	return reply
+	return &reply
+}
+
+func handleATAsense(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+	// Fucked up and non functional SENSE
+	var finalOutput [8192]byte
+	output := make([]byte, in.bufflen)
+
+	resp_len := 256
+
+	offset := 0
+
+	// blocksize = dev->block_size;
+	// nblocks = dev->nblocks;
+
+	devtype := DEVICE_TYPE_SCANNER /* type dev */
+	dbd := in.cdb[1] & 0x08
+	// pcontrol := (in.cdb[2] & 0xc0) >> 6
+	pcode := in.cdb[2] & 0x3f
+	// subpcode := in.cdb[3]
+	msense_6 := (0x1a == in.cdb[0])
+	dev_spec := 0x80
+
+	blocksize := 512
+	// nblocks := 16
+
+	if pcode == 0x03 {
+		// Unhandleable
+		log.Fatalf("boom %v pcode == 0x03", in)
+	}
+
+	if msense_6 {
+		output[1] = byte(devtype)
+		output[2] = byte(dev_spec)
+		offset = 4
+	} else {
+		output[2] = byte(devtype)
+		output[3] = byte(dev_spec)
+		offset = 8
+	}
+
+	dbd2 := dbd > 0x01
+	if !dbd2 {
+		/* Create block descriptor */
+		output[offset-1] = 0x08 /* block descriptor length */
+		output[offset+0] = 0xFF
+		output[offset+1] = 0xFF
+		output[offset+2] = 0xFF
+		output[offset+3] = 0xFF
+		output[offset+4] = 0                             /* density code */
+		output[offset+5] = byte(blocksize>>(8*2)) & 0xFF /* blklen */
+		output[offset+6] = byte(blocksize>>(8*1)) & 0xFF
+		output[offset+7] = byte(blocksize>>(8*0)) & 0xFF
+
+		offset += 8 /* increment offset */
+	}
+
+	// bp := buf + offset
+
+	log.Printf("pcode = %d", pcode)
+
+	pcodelen := 0
+	bpSlice := output[offset:]
+
+	switch pcode {
+	case 0x01:
+		/* Read-Write Error Recovery page for mode_sense */
+		a := [...]byte{0x1, 0xa, 0xc0, 11, 240, 0, 0, 0, 5, 0, 0xff, 0xff}
+		for i, v := range a {
+			bpSlice[i] = v
+		}
+		pcodelen = len(a)
+		break
+	case 0x02:
+		/* Disconnect-Reconnect page, all devices */
+		a := [...]byte{0x3, 0x16, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0x40, 0, 0, 0}
+		for i, v := range a {
+			bpSlice[i] = v
+		}
+		pcodelen = len(a)
+
+		break
+	case 0x03:
+		/* Format device page, direct access */
+		break
+	case 0x04:
+		/* Rigid disk geometry */
+		a := [...]byte{0x04, 0x16, 0, 0, 0, 255, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+			0x3a, 0x98 /* 15K RPM */, 0, 0}
+		for i, v := range a {
+			bpSlice[i] = v
+		}
+		pcodelen = len(a)
+
+		break
+	case 0x08:
+		/* Caching page, direct access */
+		break
+	case 0x0a:
+		/* Control Mode page, all devices */
+		break
+	case 0x1c:
+		/* Informational Exceptions Mode page, all devices */
+		break
+	case 0x3f:
+		/* Read all Mode pages */
+		break
+	}
+
+	offset += pcodelen
+
+	if msense_6 {
+		output[0] = byte(offset - 1)
+	} else {
+		output[0] = byte((offset-2)>>8) & 0xff
+		output[1] = byte(offset-2) & 0xff
+	}
+
+	// ---
+	log.Printf("debug: resp_len = %d", resp_len)
+
+	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	finalOutputOffset := alignTheBuffer(in.pbuf)
+
+	copy(finalOutput[finalOutputOffset:], output[:offset])
+
+	// in.pbuf += uintptr(finalOutputOffset)
+	reply.pbuf += uintptr(finalOutputOffset)
+
+	reply.resp_data_len = int32(offset)
+	runtime.KeepAlive(finalOutput)
 }
 
 func alignTheBuffer(ptr uintptr) int {
@@ -120,16 +291,51 @@ func alignTheBuffer(ptr uintptr) int {
 	return int(offset3)
 }
 
-func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply) {
+func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+	var finalOutput [8192]byte
+	output := make([]byte, 8)
+	blocksize := 512
+
+	reply.status = SCST_EXEC_REPLY_COMPLETED
+
+	output[0] = 0xFF
+	output[1] = 0xFF
+	output[2] = 0xFF
+	output[3] = 0xFF
+	output[4] = byte(blocksize>>(8*3)) & 0xFF
+	output[5] = byte(blocksize>>(8*2)) & 0xFF
+	output[6] = byte(blocksize>>(8*1)) & 0xFF
+	output[7] = byte(blocksize>>(8*0)) & 0xFF
+
+	resp_len := 8
+	log.Printf("debug: resp_len = %d", resp_len)
+
+	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	finalOutputOffset := alignTheBuffer(in.pbuf)
+
+	copy(finalOutput[finalOutputOffset:], output[:])
+
+	in.pbuf += uintptr(finalOutputOffset)
+	reply.pbuf += uintptr(finalOutputOffset)
+
+	reply.resp_data_len = int32(resp_len)
+	// in = int32(resp_len)
+
+	runtime.KeepAlive(finalOutput)
+}
+
+func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+
+}
+
+func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	var finalOutput [8192]byte
 
 	output := make([]byte, in.bufflen)
 	resp_len := 0
 
-	output[0] = DEVICE_TYPE_DISK // sure, i'm a uhhh disk
-	// Readers note: I really did consider being a DEVICE_TYPE_SCANNER
-	// but I have no real desire to figure out what enumeration is needed
-	// for that.
+	output[0] = DEVICE_TYPE_SCANNER // sure, i'm a uhhh scanner
 	if (in.cdb[1] & 0x01) > 1 {
 		log.Printf("Inquire 1")
 
@@ -140,7 +346,7 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 			output[3] = 5
 			output[4] = 0x0  /* this page */
 			output[5] = 0x80 /* unit serial number */
-			output[6] = 0x83 /* device identification */
+			// output[6] = 0x83 /* device identification */
 			output[7] = 0xB0 /* block limits */
 			output[8] = 0xB1 /* block device characteristics */
 			resp_len = int(uint8(output[3]) + 6)
@@ -148,14 +354,71 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 		} else if 0x80 == in.cdb[2] { /* unit serial number */
 			log.Printf("Inquire 3")
 
+			/*
+				unsigned int usn_len = strlen(dev->usn);
+				buf[1] = 0x80;
+				buf[3] = usn_len;
+				assert(4 + usn_len <= sizeof(buf));
+				memcpy(&buf[4], dev->usn, usn_len);
+				resp_len = buf[3] + 4;
+			*/
+			output[1] = 0x80
+			output[3] = 0x02
+			output[4] = 0x33
+			output[5] = 0x34
+			resp_len = int(output[3]) + 4
+
 		} else if 0x83 == in.cdb[2] { /* device identification */
 			log.Printf("Inquire 4")
 
 		} else if 0xB0 == in.cdb[2] { /* Block Limits */
 			log.Printf("Inquire 5")
 
+			max_transfer := 0
+			// /* Block Limits */
+			// int max_transfer;
+			output[1] = 0xB0
+			output[3] = 0x3C
+			output[5] = 0xFF /* No MAXIMUM COMPARE AND WRITE LENGTH limit */
+			// /* Optimal transfer granuality is PAGE_SIZE */
+			max_transfer = 4096 / 1000000
+			output[6] = byte(max_transfer>>8) & 0xff
+			output[7] = byte(max_transfer) & 0xff
+			// /*
+			//  * Max transfer len is min of sg limit and 8M, but we
+			//  * don't have access to them here, so let's use 1M.
+			//  */
+			max_transfer = 1 * 1024 * 1024
+			output[8] = byte(max_transfer>>24) & 0xff
+			output[9] = byte(max_transfer>>16) & 0xff
+			output[10] = byte(max_transfer>>8) & 0xff
+			output[11] = byte(max_transfer) & 0xff
+			// /*
+			//  * Let's have optimal transfer len 512KB. Better to not
+			//  * set it at all, because we don't have such limit,
+			//  * but some initiators may not understand that (?).
+			//  * From other side, too big transfers  are not optimal,
+			//  * because SGV cache supports only <4M buffers.
+			//  */
+			max_transfer = (512 * 1024)
+			output[12] = byte(max_transfer>>24) & 0xff
+			output[13] = byte(max_transfer>>16) & 0xff
+			output[14] = byte(max_transfer>>8) & 0xff
+			output[15] = byte(max_transfer) & 0xff
+			resp_len = int(output[3]) + 4
+
 		} else if 0xB1 == in.cdb[2] { /* Block Device Characteristics */
 			log.Printf("Inquire 6")
+			output[1] = 0xB1
+			output[3] = 0x3C
+
+			/* 15K RPM */
+			// r = 0x3A98;
+			r := 0x0045
+			// r = 1
+			output[4] = byte(r>>8) & 0xff
+			output[5] = byte(r & 0xff)
+			resp_len = int(output[3]) + 4
 
 		} else {
 			log.Printf("Inquire 7")
@@ -173,7 +436,25 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 			// set_cmd_error(vcmd,
 			//     SCST_LOAD_SENSE(scst_sense_invalid_field_in_cdb));
 			// goto out;
+			// return reply
+			// reply.sense_len
 			log.Printf("FUUUUUUUUUUUUUUUUUUCK Unsupported INQ PAGE")
+
+			reply.reply_type = SAM_STAT_CHECK_CONDITION
+			// reply.sense_len
+
+			sense := [252]byte{}
+
+			sense[0] = 0x70  /* Error Code			*/
+			sense[2] = 0x05  /* Sense Key			*/ //  ILLEGAL_REQUEST
+			sense[7] = 0x0a  /* Additional Sense Length	*/
+			sense[12] = 0x24 /* ASC				*/
+			sense[13] = 0x00 /* ASCQ				*/
+			reply.sense_len = 18
+			reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
+
+			log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
+
 		}
 
 		output[2] = 6    /* Device complies to SPC-4 */
@@ -182,20 +463,20 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 		output[6] = 1    /* MultiP 1 */
 		output[7] = 2    /* CMDQUE 1, BQue 0 => commands queuing supported */
 
-		copy(output[8:], []byte("xXxBCxXx"))
+		copy(output[8:], []byte("BENJOJO "))
 		/* 8 byte ASCII Vendor Identification of the target - left aligned */
 		// memcpy(&buf[8], VENDOR, 8);
 
 		/* 16 byte ASCII Product Identification of the target - left aligned */
 		copy(output[16:], []byte("                "))
-		copy(output[16:], []byte("YOLO"))
+		copy(output[16:], []byte("Network Card lol"))
 		// memset(&buf[16], ' ', 16);
 		// len = min(strlen(dev->name), (size_t)16);
 		// memcpy(&buf[16], dev->name, len);
 
 		/* 4 byte ASCII Product Revision Level of the target - left aligned */
 		// memcpy(&buf[32], FIO_REV, 4);
-		copy(output[16:], []byte("350 "))
+		copy(output[32:], []byte("350 "))
 
 		resp_len = int(output[4]) + 5
 
