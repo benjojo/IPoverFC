@@ -96,32 +96,53 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 	case ATA_MODE_SENSE:
 		log.Printf("ATA_SENSE")
 		handleATAsense(in, &reply)
+	case ATA_WRITE_16:
+		log.Printf("ATA_WRITE")
+		handleATAwrite(in, &reply)
+	case ATA_READ_16:
+		log.Printf("ATA_READ")
+		handleATAread(in, &reply)
 	default:
 		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
 		// reply.sense_len
 
+		reply.reply_type = SAM_STAT_CHECK_CONDITION
+		// reply.sense_len
+
 		sense := [252]byte{}
 
-		sense[0] = 0x70 /* Error Code			*/
-		sense[2] = 0x05 /* Sense Key			*/ //  ILLEGAL_REQUEST
-		// sense[2] = 0x04 /* Sense Key			*/ //  HARDWARE_ERROR
+		sense[0] = 0x70  /* Error Code			*/
+		sense[2] = 0x05  /* Sense Key			*/ //  ILLEGAL_REQUEST
 		sense[7] = 0x0a  /* Additional Sense Length	*/
-		sense[12] = 0x20 /* ASC				*/
-		// sense[12] = 0x44 /* ASC				*/
+		sense[12] = 0x24 /* ASC				*/
 		sense[13] = 0x00 /* ASCQ				*/
 		reply.sense_len = 18
 		reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
-		reply.resp_data_len = 0
-		reply.pbuf = 0
-		// var fO [8192]byte
-		// reply.pbuf = uintptr(unsafe.Pointer(&fO))
-		// finalOutputOffset := alignTheBuffer(reply.pbuf)
-		// reply.pbuf += uintptr(finalOutputOffset)
-		// reply.resp_data_len = 0
-
-		reply.status = SAM_STAT_CHECK_CONDITION
 
 		log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
+
+		// sense := [252]byte{}
+
+		// sense[0] = 0x70 /* Error Code			*/
+		// sense[2] = 0x05 /* Sense Key			*/ //  ILLEGAL_REQUEST
+		// // sense[2] = 0x04 /* Sense Key			*/ //  HARDWARE_ERROR
+		// sense[7] = 0x0a  /* Additional Sense Length	*/
+		// sense[12] = 0x20 /* ASC				*/
+		// // sense[12] = 0x44 /* ASC				*/
+		// sense[13] = 0x00 /* ASCQ				*/
+		// reply.sense_len = 18
+		// reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
+		// reply.resp_data_len = 0
+		// reply.pbuf = 0
+		// // var fO [8192]byte
+		// // reply.pbuf = uintptr(unsafe.Pointer(&fO))
+		// // finalOutputOffset := alignTheBuffer(reply.pbuf)
+		// // reply.pbuf += uintptr(finalOutputOffset)
+		// // reply.resp_data_len = 0
+
+		// reply.status = SAM_STAT_CHECK_CONDITION
+
+		// log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 	}
 
 	runtime.KeepAlive(reply)
@@ -326,7 +347,38 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 }
 
 func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+	log.Printf("WRITE !!!!!!!!!!!!!!!")
 
+	// data_len:1536, bufflen:1536,
+
+	// ignore the "misuse of unsafe.pointer", the linter is wrong.
+	InboundData := (*[1536]byte)(unsafe.Pointer(in.pbuf))
+	log.Printf("%#v", InboundData[0])
+	reply.status = SCST_EXEC_REPLY_COMPLETED
+}
+
+func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+	log.Printf("READ !!!!!!!!!!!!!!!!")
+
+	var outboundData [1536]byte
+	var finalOutput [8192]byte
+	for i := 0; i < 1536; i++ {
+		outboundData[i] = 0xBE
+
+	}
+
+	// outboundData[0] = 0xBE
+	reply.resp_data_len = 1536
+	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
+	reply.sense_len = 0
+
+	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	finalOutputOffset := alignTheBuffer(in.pbuf)
+
+	copy(finalOutput[finalOutputOffset:], outboundData[:])
+	in.pbuf += uintptr(finalOutputOffset)
+
+	runtime.KeepAlive(finalOutput)
 }
 
 func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
@@ -559,6 +611,8 @@ const (
 	ATA_MODE_SENSE_10          = 0x5a
 	ATA_PERSISTENT_RESERVE_IN  = 0x5e
 	ATA_PERSISTENT_RESERVE_OUT = 0x5f
+	ATA_READ_16                = 0x88
+	ATA_WRITE_16               = 0x8a
 	ATA_MOVE_MEDIUM            = 0xa5
 	ATA_READ_12                = 0xa8
 	ATA_WRITE_12               = 0xaa
