@@ -2,6 +2,9 @@ package main
 
 import (
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"unsafe"
 )
 
@@ -11,6 +14,16 @@ func main() {
 		log.Fatalf("Failed to register device: %v",
 			err)
 	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGURG)
+	go func() {
+		for aaa := range c {
+			log.Printf("SAVED US FROM EXPLOSION? THANKS I GUESS %v", aaa)
+		}
+	}()
+
+	go startTap()
 
 	pollForStuff(fd)
 }

@@ -91,13 +91,19 @@ func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) error {
 }
 
 func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) error {
-	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
-	log.Printf("ooo %v", err)
-	if err != nil {
-		log.Printf("======================================= %v =======================================", err)
-		time.Sleep(time.Second)
+	tmp := uintptr(unsafe.Pointer(def))
+	for {
+		err := ioctl(fd, 3256907013, tmp)
+		log.Printf("ooo %v", err)
+		if err != nil {
+			log.Printf("======================================= %v =======================================", err)
+			time.Sleep(time.Second)
+		}
+		if err == errEINTR {
+			continue
+		}
+		return err
 	}
-	return err
 }
 
 func SCST_USER_REPLY_AND_GET_CMD_ON_EXEC(fd int, def *raw_scst_user_get_cmd_scsi_cmd_exec) error {
@@ -118,6 +124,7 @@ var (
 	errEAGAIN error = syscall.EAGAIN
 	errEINVAL error = syscall.EINVAL
 	errENOENT error = syscall.ENOENT
+	errEINTR  error = syscall.EINTR
 )
 
 func errnoErr(e syscall.Errno) error {
@@ -130,6 +137,8 @@ func errnoErr(e syscall.Errno) error {
 		return errEINVAL
 	case unix.ENOENT:
 		return errENOENT
+	case unix.EINTR:
+		return errEINTR
 	}
 	return e
 }

@@ -304,9 +304,9 @@ func alignTheBuffer(ptr uintptr) int {
 	offset3 := uintptr(offset2)
 
 	if (ptr+(offset3))%4096 != 0 {
-		log.Fatalf("Nope, try again\nA: %d\nB:%d\n%d", ptr, ptr+(offset3), (ptr+(ptr%4096))%4096)
+		// log.Fatalf("Nope, try again\nA: %d\nB:%d\n%d", ptr, ptr+(offset3), (ptr+(ptr%4096))%4096)
 	} else {
-		log.Printf("Buf debug\nA: %d (%x)\nB:%d (%x)\n%d", ptr, ptr, ptr+(offset3), ptr+(offset3), (ptr+(offset3))%4096)
+		// log.Printf("Buf debug\nA: %d (%x)\nB:%d (%x)\n%d", ptr, ptr, ptr+(offset3), ptr+(offset3), (ptr+(offset3))%4096)
 	}
 
 	return int(offset3)
@@ -349,22 +349,42 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	log.Printf("WRITE !!!!!!!!!!!!!!!")
 
+	log.Printf("Incoming PACKET######################################")
+
 	// data_len:1536, bufflen:1536,
 
 	// ignore the "misuse of unsafe.pointer", the linter is wrong.
 	InboundData := (*[1536]byte)(unsafe.Pointer(in.pbuf))
-	log.Printf("%#v", InboundData[0])
+	// log.Printf("%#v", InboundData)
+
+	realPkt := make([]byte, 1536)
+	copy(realPkt, InboundData[:])
+	inboundPackets <- realPkt
+
 	reply.status = SCST_EXEC_REPLY_COMPLETED
 }
 
 func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	log.Printf("READ !!!!!!!!!!!!!!!!")
+	var realpkt []byte
+	var hasPacket bool
 
+	select {
+	case pkt := <-outboundPackets:
+		realpkt = pkt
+		hasPacket = true
+		log.Printf("SENDING OUTBOUND PACKET(!)!(!)(!)!()!(!)!()!(!)(!)!s")
+	default:
+	}
 	var outboundData [1536]byte
 	var finalOutput [8192]byte
 	for i := 0; i < 1536; i++ {
-		outboundData[i] = 0xBE
-
+		outboundData[i] = 0x00
+	}
+	if hasPacket {
+		for i := 0; i < len(realpkt); i++ {
+			outboundData[i] = realpkt[i]
+		}
 	}
 
 	// outboundData[0] = 0xBE
