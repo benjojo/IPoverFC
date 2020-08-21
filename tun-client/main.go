@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -14,10 +16,29 @@ func main() {
 		log.Fatalf("Failed to open ATA device")
 	}
 
+	go startTap()
+
 	for {
-		sendReadSgio(f)
+		pkt, err := sendReadSgio(f)
+		if err != nil {
+			log.Printf("ATA error on read %v", err)
+		} else {
+			if len(pkt) != 0 {
+				inboundPackets <- pkt
+			}
+		}
+
+		select {
+		case pkt := <-outboundPackets:
+			err := sendSgio(f, pkt)
+			if err != nil {
+				log.Printf("ATA error on read %v", err)
+			}
+
+		default:
+		}
 		// sendSgio(f)
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 100)
 	}
 }
 
@@ -46,25 +67,21 @@ const (
 	SG_DXFER_UNKNOWN (-5)   // Unknown data direction
 */
 
-func sendSgio(f *os.File) error {
-
+func sendSgio(f *os.File, pkt []byte) error {
+	log.Printf("Packet to be ATA written %v", pkt)
 	var inqCmdBlk [sgAta16Len]uint8
 	var testbuf [1536]uint8
 	inqCmdBlk[0] = 0x8a
-	inqCmdBlk[9] = 0xFF
+	// inqCmdBlk[9] = 0xFF
+
+	randLBA := make([]byte, 3)
+	rand.Read(randLBA)
+	copy(inqCmdBlk[6:], randLBA)
 
 	// inqCmdBlk[12] = 0x05
 	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
 
-	testbuf[0] = 0xDE
-	testbuf[1] = 0xAD
-	testbuf[2] = 0xBE
-	testbuf[3] = 0xEF
-
-	testbuf[1536-4] = 0xDE
-	testbuf[1536-3] = 0xAD
-	testbuf[1536-2] = 0xBE
-	testbuf[1536-1] = 0xEF
+	copy(testbuf[:], pkt)
 
 	senseBuf := make([]byte, sgio.SENSE_BUF_LEN)
 	ioHdr := &sgio.SgIoHdr{
@@ -89,11 +106,17 @@ func sendSgio(f *os.File) error {
 	return nil
 }
 
-func sendReadSgio(f *os.File) error {
+func sendReadSgio(f *os.File) (pkt []byte, err error) {
 
 	var inqCmdBlk [sgAta16Len]uint8
 	var testbuf [1536]uint8
+	pkt = make([]byte, 1536)
 	inqCmdBlk[0] = 0x88
+
+	randLBA := make([]byte, 3)
+	rand.Read(randLBA)
+	copy(inqCmdBlk[6:], randLBA)
+
 	inqCmdBlk[9] = 0xFF
 
 	// inqCmdBlk[12] = 0x05
@@ -115,13 +138,18 @@ func sendReadSgio(f *os.File) error {
 	}
 
 	if err := sgio.SgioSyscall(f, ioHdr); err != nil {
-		return err
+		return pkt, err
 	}
 
 	if err := sgio.CheckSense(ioHdr, &senseBuf); err != nil {
-		return err
+		return pkt, err
 	}
 
-	log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", testbuf)
-	return nil
+	copy(pkt, testbuf[:])
+
+	if pkt[12] != 0 {
+		log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
+	}
+	fmt.Print(".")
+	return pkt[:], nil
 }
