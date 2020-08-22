@@ -40,8 +40,8 @@ struct scst_user_dev_desc {
 */
 
 type raw_scst_user_dev_desc struct {
-	Version_str                  uintptr
-	License_str                  uintptr
+	Version_str                  *byte
+	License_str                  *byte
 	stype                        uint8
 	sgv_shared                   uint8
 	sgv_disable_clustered_pool   uint8

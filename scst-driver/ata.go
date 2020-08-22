@@ -56,18 +56,13 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 
 	ATAopCode := in.cdb[0]
 
-	// var emptyByte [1]byte
-
 	reply := raw_scst_user_reply_cmd_exec_reply_sense{
 		cmd_h:         in.cmd_h,
 		subcode:       in.subcode,
 		reply_type:    SCST_EXEC_REPLY_COMPLETED,
 		resp_data_len: 0,
-		// pbuf:          uintptr(unsafe.Pointer(&emptyByte)),
-		pbuf:   0,
-		status: SAM_STAT_GOOD,
-		// psense_buffer: uintptr(unsafe.Pointer(&emptyByte)),
-		// sense_len:     0,
+		pbuf:          0,
+		status:        SAM_STAT_GOOD,
 	}
 
 	if in.data_direction == 2 { // READ
@@ -104,11 +99,8 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		handleATAread(in, &reply)
 	default:
 		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
-		// reply.sense_len
 
 		reply.reply_type = SAM_STAT_CHECK_CONDITION
-		// reply.sense_len
-
 		sense := [252]byte{}
 
 		sense[0] = 0x70  /* Error Code			*/
@@ -120,29 +112,6 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
 
 		log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
-
-		// sense := [252]byte{}
-
-		// sense[0] = 0x70 /* Error Code			*/
-		// sense[2] = 0x05 /* Sense Key			*/ //  ILLEGAL_REQUEST
-		// // sense[2] = 0x04 /* Sense Key			*/ //  HARDWARE_ERROR
-		// sense[7] = 0x0a  /* Additional Sense Length	*/
-		// sense[12] = 0x20 /* ASC				*/
-		// // sense[12] = 0x44 /* ASC				*/
-		// sense[13] = 0x00 /* ASCQ				*/
-		// reply.sense_len = 18
-		// reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
-		// reply.resp_data_len = 0
-		// reply.pbuf = 0
-		// // var fO [8192]byte
-		// // reply.pbuf = uintptr(unsafe.Pointer(&fO))
-		// // finalOutputOffset := alignTheBuffer(reply.pbuf)
-		// // reply.pbuf += uintptr(finalOutputOffset)
-		// // reply.resp_data_len = 0
-
-		// reply.status = SAM_STAT_CHECK_CONDITION
-
-		// log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 	}
 
 	runtime.KeepAlive(reply)
@@ -271,13 +240,11 @@ func handleATAsense(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 	// ---
 	log.Printf("debug: resp_len = %d", resp_len)
 
-	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 	finalOutputOffset := alignTheBuffer(in.pbuf)
 
 	copy(finalOutput[finalOutputOffset:], output[:offset])
 
-	// in.pbuf += uintptr(finalOutputOffset)
 	reply.pbuf += uintptr(finalOutputOffset)
 
 	reply.resp_data_len = int32(offset)
@@ -337,11 +304,9 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 
 	copy(finalOutput[finalOutputOffset:], output[:])
 
-	// in.pbuf += uintptr(finalOutputOffset)
 	reply.pbuf += uintptr(finalOutputOffset)
 
 	reply.resp_data_len = int32(resp_len)
-	// in = int32(resp_len)
 
 	runtime.KeepAlive(finalOutput)
 }
@@ -510,7 +475,7 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 			// goto out;
 			// return reply
 			// reply.sense_len
-			log.Printf("FUUUUUUUUUUUUUUUUUUCK Unsupported INQ PAGE")
+			log.Printf("ATA INQUIRE: Unsupported INQ PAGE")
 
 			reply.reply_type = SAM_STAT_CHECK_CONDITION
 			// reply.sense_len

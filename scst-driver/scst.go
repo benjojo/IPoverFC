@@ -66,9 +66,8 @@ func registerDevice() (int, error) {
 		'4', '2', 'a', 'f', '5', '3', 'c', '5', 'a', '3', 'e', '5', '6', 'e', 'b', '3', 'c', '4', 'f', '5', '2', '3', 'c', '0', 0x00}
 
 	def := raw_scst_user_dev_desc{
-		// Version_str: math.MaxUint64,
-		Version_str: uintptr(unsafe.Pointer(&verString)),
-		License_str: uintptr(unsafe.Pointer(&gplString)),
+		Version_str: &verString[0],
+		License_str: &gplString[0],
 		scst_user_opt: raw_scst_user_opt{
 			on_free_cmd_type:         1,
 			memory_reuse_type:        3,
