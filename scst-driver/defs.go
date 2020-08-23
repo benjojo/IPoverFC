@@ -229,7 +229,7 @@ type raw_scst_user_get_cmd_scsi_cmd_exec struct {
 	// alloc_len - command's buffer length, which should be allocated, if pbuf is 0 and the command requires data transfer
 	alloc_len int32
 	// pbuf - pointer to command's data buffer or 0 for SCSI commands without data transfer.
-	pbuf uintptr
+	pbuf *byte
 	// queue_type - SCSI task attribute (queue type)
 	queue_type uint8
 	// data_direction - command's data ow direction, one of SCST_DATA_* constants
@@ -242,7 +242,7 @@ type raw_scst_user_get_cmd_scsi_cmd_exec struct {
 	timeout int32
 	// p_out_buf - for bidirectional commands pointer on command's OUT, i.e. from initiator to target,
 	// data buffer or 0 for SCSI commands without data transfer
-	p_out_buf uintptr
+	p_out_buf *byte
 	// out_bufflen - for bidirectional commands command's OUT, i.e. from initiator to target, buffer length
 	out_bufflen int32
 	// sn - command's SN, which might be used for task management
@@ -365,11 +365,11 @@ type raw_scst_user_reply_cmd_exec_reply_sense struct {
 	resp_data_len int32
 	// fake          int32
 	// do I need to add a fake int32 here to align?
-	pbuf          uintptr
+	pbuf          *byte
 	reply_type    uint8
 	status        uint8
 	sense_len     uint8
-	psense_buffer uintptr
+	psense_buffer *byte
 
 	/*
 		union {

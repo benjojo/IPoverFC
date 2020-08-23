@@ -61,16 +61,18 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		subcode:       in.subcode,
 		reply_type:    SCST_EXEC_REPLY_COMPLETED,
 		resp_data_len: 0,
-		pbuf:          0,
+		pbuf:          nil,
 		status:        SAM_STAT_GOOD,
 	}
 
 	if in.data_direction == 2 { // READ
 		reply.resp_data_len = in.bufflen
+		log.Printf("data_direction READ")
 	} else if in.data_direction == 4 { // None
 		reply.resp_data_len = 0
+		log.Printf("data_direction NONE")
 	} else {
-		log.Printf("FUCK IT@S A WRITE RUN")
+		log.Printf("data_direction WRITE")
 	}
 
 	log.Printf("------> Opcode %x", ATAopCode)
@@ -109,7 +111,7 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		sense[12] = 0x24 /* ASC				*/
 		sense[13] = 0x00 /* ASCQ				*/
 		reply.sense_len = 18
-		reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
+		reply.psense_buffer = &sense[0]
 
 		log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 	}
@@ -240,12 +242,12 @@ func handleATAsense(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 	// ---
 	log.Printf("debug: resp_len = %d", resp_len)
 
-	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	finalOutputOffset := alignTheBuffer(in.pbuf)
+	reply.pbuf = &finalOutput[0]
+	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
 
 	copy(finalOutput[finalOutputOffset:], output[:offset])
 
-	reply.pbuf += uintptr(finalOutputOffset)
+	reply.pbuf = &finalOutput[finalOutputOffset]
 
 	reply.resp_data_len = int32(offset)
 	runtime.KeepAlive(finalOutput)
@@ -299,12 +301,12 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 	log.Printf("debug: resp_len = %d", resp_len)
 
 	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	finalOutputOffset := alignTheBuffer(in.pbuf)
+	reply.pbuf = &finalOutput[0]
+	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&finalOutput)))
 
 	copy(finalOutput[finalOutputOffset:], output[:])
 
-	reply.pbuf += uintptr(finalOutputOffset)
+	reply.pbuf = &finalOutput[finalOutputOffset]
 
 	reply.resp_data_len = int32(resp_len)
 
@@ -319,10 +321,10 @@ func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 	// data_len:1536, bufflen:1536,
 
 	// ignore the "misuse of unsafe.pointer", the linter is wrong.
+	realPkt := make([]byte, 1536)
 	InboundData := (*[1536]byte)(unsafe.Pointer(in.pbuf))
 	// log.Printf("%#v", InboundData)
 
-	realPkt := make([]byte, 1536)
 	copy(realPkt, InboundData[:])
 	inboundPackets <- realPkt
 
@@ -346,6 +348,10 @@ func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user
 	for i := 0; i < 1536; i++ {
 		outboundData[i] = 0x00
 	}
+	for i := 0; i < len(finalOutput); i++ {
+		finalOutput[i] = 0x00
+	}
+
 	if hasPacket {
 		for i := 0; i < len(realpkt); i++ {
 			outboundData[i] = realpkt[i]
@@ -357,11 +363,11 @@ func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user
 	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
 	reply.sense_len = 0
 
-	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	finalOutputOffset := alignTheBuffer(in.pbuf)
+	in.pbuf = &finalOutput[0]
+	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
 
 	copy(finalOutput[finalOutputOffset:], outboundData[:])
-	in.pbuf += uintptr(finalOutputOffset)
+	in.pbuf = &finalOutput[finalOutputOffset]
 
 	runtime.KeepAlive(finalOutput)
 }
@@ -488,7 +494,7 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 			sense[12] = 0x24 /* ASC				*/
 			sense[13] = 0x00 /* ASCQ				*/
 			reply.sense_len = 18
-			reply.psense_buffer = uintptr(unsafe.Pointer(&sense))
+			reply.psense_buffer = &sense[0]
 
 			log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 
@@ -522,14 +528,15 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 
 	log.Printf("debug: resp_len = %d", resp_len)
 
-	in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	finalOutputOffset := alignTheBuffer(in.pbuf)
+	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+	// reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
+
+	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&finalOutput)))
 
 	copy(finalOutput[finalOutputOffset:], output[:])
 
-	in.pbuf += uintptr(finalOutputOffset)
-	reply.pbuf += uintptr(finalOutputOffset)
+	in.pbuf = &finalOutput[finalOutputOffset]
+	reply.pbuf = &finalOutput[finalOutputOffset]
 
 	reply.resp_data_len = int32(resp_len)
 	runtime.KeepAlive(finalOutput)
