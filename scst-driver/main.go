@@ -36,6 +36,9 @@ func trap_me() {
 
 func pollForStuff(fd int) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
+	instance := scstInstance{
+		globalOutputBufAlign: -1,
+	}
 
 	for {
 
@@ -58,7 +61,7 @@ func pollForStuff(fd int) interface{} {
 			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
 			// log.Printf("SCST_USER_EXEC -> %#v", lol)
 
-			reply := processExecCmd(lol)
+			reply := instance.processExecCmd(lol)
 			if reply.pbuf != nil {
 				log.Printf("First byte = %#v", *reply.pbuf)
 			}

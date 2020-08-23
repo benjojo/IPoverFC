@@ -6,13 +6,17 @@ import (
 	"unsafe"
 )
 
-var antiGCBufferStorage map[int][]byte
-var buffersMade int
-var currentpbuf []byte
+type scstInstance struct {
+	antiGCBufferStorage  map[int][]byte
+	buffersMade          int
+	currentpbuf          []byte
+	globalOutputBuf      [8192]byte
+	globalOutputBufAlign int
+}
 
-func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
-	if antiGCBufferStorage == nil {
-		antiGCBufferStorage = make(map[int][]byte)
+func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
+	if instance.antiGCBufferStorage == nil {
+		instance.antiGCBufferStorage = make(map[int][]byte)
 	}
 	/*
 		(gdb) print *cmd
@@ -75,19 +79,19 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 	if in.alloc_len != 0 && in.pbuf == nil {
 		// ooh, we need to alloc a buffer?
 		log.Printf("The module wishes for more memory sir.")
-		buffersMade++
+		instance.buffersMade++
 
 		aaa := make([]byte, in.alloc_len+8196)
 
 		finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&aaa[0])))
 
 		reply.pbuf = &aaa[finalOutputOffset]
-		antiGCBufferStorage[buffersMade] = aaa
-		currentpbuf = aaa[finalOutputOffset:]
+		instance.antiGCBufferStorage[instance.buffersMade] = aaa
+		instance.currentpbuf = aaa[finalOutputOffset:]
 	}
-	if currentpbuf != nil {
+	if instance.currentpbuf != nil {
 		for i := 0; i < 1536; i++ {
-			currentpbuf[i] = 0x00
+			instance.currentpbuf[i] = 0x00
 		}
 	}
 
@@ -119,10 +123,10 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		handleATAsense(in, &reply)
 	case ATA_WRITE_16:
 		log.Printf("ATA_WRITE")
-		handleATAwrite(in, &reply)
+		instance.handleATAwrite(in, &reply)
 	case ATA_READ_16:
 		log.Printf("ATA_READ")
-		handleATAread(in, &reply)
+		instance.handleATAread(in, &reply)
 	default:
 		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
 
@@ -337,7 +341,7 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 	runtime.KeepAlive(finalOutput)
 }
 
-func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	log.Printf("WRITE !!!!!!!!!!!!!!!")
 
 	log.Printf("Incoming PACKET######################################")
@@ -355,10 +359,7 @@ func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 	reply.status = SCST_EXEC_REPLY_COMPLETED
 }
 
-var globalOutputBuf [8192]byte
-var globalOutputBufAlign = -1
-
-func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
+func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	log.Printf("READ !!!!!!!!!!!!!!!!")
 	var realpkt []byte
 	var hasPacket bool
@@ -391,33 +392,33 @@ func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user
 	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
 	reply.sense_len = 0
 
-	if currentpbuf != nil {
-		if globalOutputBufAlign == -1 {
-			aa := alignTheBuffer(uintptr(unsafe.Pointer(&globalOutputBuf)))
-			globalOutputBufAlign = aa
-		}
-
-		log.Printf("Using global pbuf")
-		if hasPacket {
-			for i := 0; i < len(realpkt); i++ {
-				globalOutputBuf[globalOutputBufAlign+i] = realpkt[i]
-			}
-		} else {
-			for i := 0; i < 1536; i++ {
-				globalOutputBuf[globalOutputBufAlign+i] = 0x00
-			}
-		}
-
-		// in.pbuf = &currentpbuf[0]
-		reply.pbuf = &globalOutputBuf[globalOutputBufAlign]
-	} else {
-		in.pbuf = &finalOutput[0]
-		finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
-
-		copy(finalOutput[finalOutputOffset:], outboundData[:])
-		in.pbuf = &finalOutput[finalOutputOffset]
-		in.pbuf = &finalOutput[finalOutputOffset]
+	// if instance.currentpbuf != nil {
+	if instance.globalOutputBufAlign == -1 {
+		aa := alignTheBuffer(uintptr(unsafe.Pointer(&instance.globalOutputBuf)))
+		instance.globalOutputBufAlign = aa
 	}
+
+	log.Printf("Using global pbuf")
+	if hasPacket {
+		for i := 0; i < len(realpkt); i++ {
+			instance.globalOutputBuf[instance.globalOutputBufAlign+i] = realpkt[i]
+		}
+	} else {
+		for i := 0; i < 1536; i++ {
+			instance.globalOutputBuf[instance.globalOutputBufAlign+i] = 0x00
+		}
+	}
+
+	// in.pbuf = &currentpbuf[0]
+	reply.pbuf = &instance.globalOutputBuf[instance.globalOutputBufAlign]
+	// } else {
+	// 	in.pbuf = &finalOutput[0]
+	// 	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
+
+	// 	copy(finalOutput[finalOutputOffset:], outboundData[:])
+	// 	in.pbuf = &finalOutput[finalOutputOffset]
+	// 	in.pbuf = &finalOutput[finalOutputOffset]
+	// }
 
 	runtime.KeepAlive(finalOutput)
 }
