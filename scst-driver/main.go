@@ -59,6 +59,9 @@ func pollForStuff(fd int) interface{} {
 			// log.Printf("SCST_USER_EXEC -> %#v", lol)
 
 			reply := processExecCmd(lol)
+			if reply.pbuf != nil {
+				log.Printf("First byte = %#v", *reply.pbuf)
+			}
 			def.preply = uintptr(unsafe.Pointer(reply))
 			// def = def2
 			// def_exec = lol

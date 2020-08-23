@@ -26,11 +26,11 @@ func startTap() {
 	}
 
 	go func() {
-		for pkt := range inboundPackets {
-			if len(pkt) != 0 {
-				if pkt[12] != 0x00 {
+		for pkt2 := range inboundPackets {
+			if len(pkt2) != 0 {
+				if pkt2[12] != 0x00 {
 					fmt.Print(">")
-					_, err := iface.Write(pkt)
+					_, err := iface.Write(pkt2)
 					if err != nil {
 						log.Fatalf("Can't write to tap device, I don't know how this happens but its likely fatal: %v", err)
 					}
@@ -41,6 +41,9 @@ func startTap() {
 
 	for {
 		pkt := make([]byte, 512*3)
+		for i := 0; i < len(pkt); i++ {
+			pkt[i] = 0x00
+		}
 		n, err := iface.Read(pkt)
 		if err != nil {
 			log.Fatalf("Can't read from tap device, I don't know how this happens but its likely fatal: %v", err)
@@ -48,7 +51,6 @@ func startTap() {
 
 		outboundPackets <- pkt[:n]
 		fmt.Print("<")
-
 	}
 }
 

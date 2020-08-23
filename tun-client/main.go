@@ -10,6 +10,8 @@ import (
 	"github.com/benmcclelland/sgio"
 )
 
+var lastRead = 0
+
 func main() {
 	f, err := os.Open("/dev/sg1")
 	if err != nil {
@@ -19,18 +21,23 @@ func main() {
 	go startTap()
 
 	for {
+		// hadRead := false
 		pkt, err := sendReadSgio(f)
 		if err != nil {
 			log.Printf("ATA error on read %v", err)
 		} else {
 			if len(pkt) != 0 {
 				inboundPackets <- pkt
+				// hadRead = true
+				lastRead = 0
+			} else {
+				lastRead++
 			}
 		}
 
 		select {
-		case pkt := <-outboundPackets:
-			err := sendSgio(f, pkt)
+		case pkt2 := <-outboundPackets:
+			err := sendSgio(f, pkt2)
 			if err != nil {
 				log.Printf("ATA error on read %v", err)
 			}
@@ -38,7 +45,11 @@ func main() {
 		default:
 		}
 		// sendSgio(f)
-		time.Sleep(time.Millisecond * 100)
+		if lastRead < 10 {
+			time.Sleep(time.Millisecond * 1)
+		} else {
+			time.Sleep(time.Millisecond * 10)
+		}
 	}
 }
 
@@ -68,7 +79,7 @@ const (
 */
 
 func sendSgio(f *os.File, pkt []byte) error {
-	log.Printf("Packet to be ATA written %v", pkt)
+	// log.Printf("Packet to be ATA written %v", pkt)
 	var inqCmdBlk [sgAta16Len]uint8
 	var testbuf [1536]uint8
 	inqCmdBlk[0] = 0x8a
@@ -82,6 +93,9 @@ func sendSgio(f *os.File, pkt []byte) error {
 	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
 
 	copy(testbuf[:], pkt)
+	for i := 0; i < len(pkt); i++ {
+		pkt[i] = 0x00
+	}
 
 	senseBuf := make([]byte, sgio.SENSE_BUF_LEN)
 	ioHdr := &sgio.SgIoHdr{
@@ -148,8 +162,10 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 	copy(pkt, testbuf[:])
 
 	if pkt[12] != 0 {
-		log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
+		// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
+		fmt.Print(",")
+	} else {
+		fmt.Print(".")
 	}
-	fmt.Print(".")
 	return pkt[:], nil
 }

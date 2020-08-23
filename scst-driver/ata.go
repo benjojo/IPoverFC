@@ -6,7 +6,14 @@ import (
 	"unsafe"
 )
 
+var antiGCBufferStorage map[int][]byte
+var buffersMade int
+var currentpbuf []byte
+
 func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
+	if antiGCBufferStorage == nil {
+		antiGCBufferStorage = make(map[int][]byte)
+	}
 	/*
 		(gdb) print *cmd
 		$4 = {
@@ -65,6 +72,25 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		status:        SAM_STAT_GOOD,
 	}
 
+	if in.alloc_len != 0 && in.pbuf == nil {
+		// ooh, we need to alloc a buffer?
+		log.Printf("The module wishes for more memory sir.")
+		buffersMade++
+
+		aaa := make([]byte, in.alloc_len+8196)
+
+		finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&aaa[0])))
+
+		reply.pbuf = &aaa[finalOutputOffset]
+		antiGCBufferStorage[buffersMade] = aaa
+		currentpbuf = aaa[finalOutputOffset:]
+	}
+	if currentpbuf != nil {
+		for i := 0; i < 1536; i++ {
+			currentpbuf[i] = 0x00
+		}
+	}
+
 	if in.data_direction == 2 { // READ
 		reply.resp_data_len = in.bufflen
 		log.Printf("data_direction READ")
@@ -83,13 +109,11 @@ func processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_repl
 		// Do nothing???
 	case ATA_INQUIRY:
 		log.Printf("ATA_INQUIRY")
-
 		handleATAinquiry(in, &reply)
 		// Haha oh my fucking god.
 	case ATA_READ_CAPACITY:
 		log.Printf("ATA_READ_CAPACITY")
 		handleATAreadCapacity(in, &reply)
-		upcomingBug = true
 	case ATA_MODE_SENSE:
 		log.Printf("ATA_SENSE")
 		handleATAsense(in, &reply)
@@ -331,6 +355,9 @@ func handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 	reply.status = SCST_EXEC_REPLY_COMPLETED
 }
 
+var globalOutputBuf [8192]byte
+var globalOutputBufAlign = -1
+
 func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
 	log.Printf("READ !!!!!!!!!!!!!!!!")
 	var realpkt []byte
@@ -338,7 +365,8 @@ func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user
 
 	select {
 	case pkt := <-outboundPackets:
-		realpkt = pkt
+		realpkt = make([]byte, len(pkt))
+		copy(realpkt, pkt)
 		hasPacket = true
 		log.Printf("SENDING OUTBOUND PACKET(!)!(!)(!)!()!(!)!()!(!)(!)!s")
 	default:
@@ -363,11 +391,33 @@ func handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user
 	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
 	reply.sense_len = 0
 
-	in.pbuf = &finalOutput[0]
-	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
+	if currentpbuf != nil {
+		if globalOutputBufAlign == -1 {
+			aa := alignTheBuffer(uintptr(unsafe.Pointer(&globalOutputBuf)))
+			globalOutputBufAlign = aa
+		}
 
-	copy(finalOutput[finalOutputOffset:], outboundData[:])
-	in.pbuf = &finalOutput[finalOutputOffset]
+		log.Printf("Using global pbuf")
+		if hasPacket {
+			for i := 0; i < len(realpkt); i++ {
+				globalOutputBuf[globalOutputBufAlign+i] = realpkt[i]
+			}
+		} else {
+			for i := 0; i < 1536; i++ {
+				globalOutputBuf[globalOutputBufAlign+i] = 0x00
+			}
+		}
+
+		// in.pbuf = &currentpbuf[0]
+		reply.pbuf = &globalOutputBuf[globalOutputBufAlign]
+	} else {
+		in.pbuf = &finalOutput[0]
+		finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
+
+		copy(finalOutput[finalOutputOffset:], outboundData[:])
+		in.pbuf = &finalOutput[finalOutputOffset]
+		in.pbuf = &finalOutput[finalOutputOffset]
+	}
 
 	runtime.KeepAlive(finalOutput)
 }
