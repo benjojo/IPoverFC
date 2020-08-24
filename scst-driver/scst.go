@@ -88,7 +88,9 @@ func registerDevice(name string) (int, error) {
 
 func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) error {
 	err := ioctl(fd, 1084257537, uintptr(unsafe.Pointer(def)))
-	log.Printf("eee %v", err)
+	if *debugLogs {
+		log.Printf("eee %v", err)
+	}
 	return err
 }
 
@@ -96,9 +98,13 @@ func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) erro
 	tmp := uintptr(unsafe.Pointer(def))
 	for {
 		err := ioctl(fd, 3256907013, tmp)
-		log.Printf("ooo %v", err)
+		if *debugLogs {
+			log.Printf("ooo %v", err)
+		}
 		if err != nil {
-			log.Printf("======================================= %v =======================================", err)
+			if *debugLogs {
+				log.Printf("======================================= %v =======================================", err)
+			}
 			time.Sleep(time.Second)
 		}
 		if err == errEINTR {
@@ -112,9 +118,13 @@ func SCST_USER_REPLY_MEM_ALLOC(fd int, def *raw_scst_user_alloc_reply) error {
 	tmp := uintptr(unsafe.Pointer(def))
 	for {
 		err := ioctl(fd, 3256907013, tmp)
-		log.Printf("ooo %v", err)
+		if *debugLogs {
+			log.Printf("ooo %v", err)
+		}
 		if err != nil {
-			log.Printf("======================================= %v =======================================", err)
+			if *debugLogs {
+				log.Printf("======================================= %v =======================================", err)
+			}
 			time.Sleep(time.Second)
 		}
 		if err == errEINTR {
@@ -126,7 +136,9 @@ func SCST_USER_REPLY_MEM_ALLOC(fd int, def *raw_scst_user_alloc_reply) error {
 
 func SCST_USER_REPLY_AND_GET_CMD_ON_EXEC(fd int, def *raw_scst_user_get_cmd_scsi_cmd_exec) error {
 	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
-	log.Printf("ooo %v", err)
+	if *debugLogs {
+		log.Printf("ooo %v", err)
+	}
 	return err
 }
 

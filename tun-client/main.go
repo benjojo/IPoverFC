@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 )
 
 var lastRead = 0
+var debugEnabled = flag.Bool("debug", false, "Enable debug text")
 
 func main() {
 	f1, err := os.Open("/dev/sg1")
@@ -162,11 +164,13 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 
 	copy(pkt, testbuf[:])
 
-	if pkt[12] != 0 {
-		// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
-		fmt.Print(",")
-	} else {
-		fmt.Print(".")
+	if *debugEnabled {
+		if pkt[12] != 0 {
+			// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
+			fmt.Print(",")
+		} else {
+			fmt.Print(".")
+		}
 	}
 	return pkt[:], nil
 }

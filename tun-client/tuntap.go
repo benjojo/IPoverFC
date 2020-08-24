@@ -29,7 +29,9 @@ func startTap() {
 		for pkt2 := range inboundPackets {
 			if len(pkt2) != 0 {
 				if pkt2[12] != 0x00 {
-					fmt.Print(">")
+					if *debugEnabled {
+						fmt.Print(">")
+					}
 					_, err := iface.Write(pkt2)
 					if err != nil {
 						log.Fatalf("Can't write to tap device, I don't know how this happens but its likely fatal: %v", err)
@@ -50,7 +52,9 @@ func startTap() {
 		}
 
 		outboundPackets <- pkt[:n]
-		fmt.Print("<")
+		if *debugEnabled {
+			fmt.Print("<")
+		}
 	}
 }
 
