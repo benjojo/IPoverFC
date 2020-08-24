@@ -3,21 +3,21 @@ package main
 import (
 	"log"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
 type scstInstance struct {
+	logger               *log.Logger
 	antiGCBufferStorage  map[int][]byte
 	buffersMade          int
 	currentpbuf          []byte
-	globalOutputBuf      [8192]byte
+	globalOutputBuf      *[8192]byte
 	globalOutputBufAlign int
+	ticker               <-chan time.Time
 }
 
 func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
-	if instance.antiGCBufferStorage == nil {
-		instance.antiGCBufferStorage = make(map[int][]byte)
-	}
 	/*
 		(gdb) print *cmd
 		$4 = {
@@ -62,7 +62,7 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 	// log.Printf("\ncmd_h:%x, subcode:%x, cdb (%d):%#v, lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d"
 
 	// log.Printf("------> Timeout %d \n%#v", in.timeout, in)
-	log.Printf("cmd_h:%x, subcode:%x lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d\ncdb (%d):%#v",
+	instance.logger.Printf("cmd_h:%x, subcode:%x lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d\ncdb (%d):%#v",
 		in.cmd_h, in.subcode, in.lba, in.data_len, in.bufflen, in.alloc_len, in.pbuf, in.queue_type, in.data_direction, in.partial, in.timeout, in.p_out_buf, in.out_bufflen, in.cdb_len, in.cdb)
 
 	ATAopCode := in.cdb[0]
@@ -76,12 +76,15 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 		status:        SAM_STAT_GOOD,
 	}
 
-	if in.alloc_len != 0 && in.pbuf == nil {
+	if (in.alloc_len != 0 && in.pbuf == nil) || len(instance.antiGCBufferStorage) == 0 {
 		// ooh, we need to alloc a buffer?
-		log.Printf("The module wishes for more memory sir.")
+		instance.logger.Printf("The module wishes for more memory sir.")
 		instance.buffersMade++
 
 		aaa := make([]byte, in.alloc_len+8196)
+		if in.alloc_len == 0 {
+			aaa = make([]byte, 8196*2)
+		}
 
 		finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&aaa[0])))
 
@@ -89,46 +92,46 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 		instance.antiGCBufferStorage[instance.buffersMade] = aaa
 		instance.currentpbuf = aaa[finalOutputOffset:]
 	}
-	if instance.currentpbuf != nil {
-		for i := 0; i < 1536; i++ {
-			instance.currentpbuf[i] = 0x00
-		}
-	}
+	// if instance.currentpbuf != nil {
+	// 	for i := 0; i < 1536; i++ {
+	// 		instance.currentpbuf[i] = 0x00
+	// 	}
+	// }
 
 	if in.data_direction == 2 { // READ
 		reply.resp_data_len = in.bufflen
-		log.Printf("data_direction READ")
+		instance.logger.Printf("data_direction READ")
 	} else if in.data_direction == 4 { // None
 		reply.resp_data_len = 0
-		log.Printf("data_direction NONE")
+		instance.logger.Printf("data_direction NONE")
 	} else {
-		log.Printf("data_direction WRITE")
+		instance.logger.Printf("data_direction WRITE")
 	}
 
-	log.Printf("------> Opcode %x", ATAopCode)
+	instance.logger.Printf("------> Opcode %x", ATAopCode)
 
 	switch ATAopCode {
 	case ATA_TEST_UNIT_READY:
-		log.Printf("ATA_TEST_UNIT_READY")
+		instance.logger.Printf("ATA_TEST_UNIT_READY")
 		// Do nothing???
 	case ATA_INQUIRY:
-		log.Printf("ATA_INQUIRY")
+		instance.logger.Printf("ATA_INQUIRY")
 		handleATAinquiry(in, &reply)
 		// Haha oh my fucking god.
 	case ATA_READ_CAPACITY:
-		log.Printf("ATA_READ_CAPACITY")
+		instance.logger.Printf("ATA_READ_CAPACITY")
 		handleATAreadCapacity(in, &reply)
 	case ATA_MODE_SENSE:
-		log.Printf("ATA_SENSE")
+		instance.logger.Printf("ATA_SENSE")
 		handleATAsense(in, &reply)
 	case ATA_WRITE_16:
-		log.Printf("ATA_WRITE")
+		instance.logger.Printf("ATA_WRITE")
 		instance.handleATAwrite(in, &reply)
 	case ATA_READ_16:
-		log.Printf("ATA_READ")
+		instance.logger.Printf("ATA_READ")
 		instance.handleATAread(in, &reply)
 	default:
-		log.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
+		instance.logger.Printf("Unsupported ATA opcode: %d / %x", ATAopCode, ATAopCode)
 
 		reply.reply_type = SAM_STAT_CHECK_CONDITION
 		sense := [252]byte{}
@@ -141,7 +144,7 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 		reply.sense_len = 18
 		reply.psense_buffer = &sense[0]
 
-		log.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
+		instance.logger.Printf("/* WARNING: Sending ILLEGAL_REQUEST SENSE */")
 	}
 
 	runtime.KeepAlive(reply)
@@ -342,16 +345,16 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 }
 
 func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
-	log.Printf("WRITE !!!!!!!!!!!!!!!")
-
-	log.Printf("Incoming PACKET######################################")
+	instance.logger.Printf("WRITE !!!!!!!!!!!!!!!")
+	instance.logger.Printf("Incoming PACKET######################################")
 
 	// data_len:1536, bufflen:1536,
 
 	// ignore the "misuse of unsafe.pointer", the linter is wrong.
+	// instance.logger.Printf("the fuck?? %#v", in.pbuf)
 	realPkt := make([]byte, 1536)
 	InboundData := (*[1536]byte)(unsafe.Pointer(in.pbuf))
-	// log.Printf("%#v", InboundData)
+	// instance.logger.Printf("%#v", InboundData)
 
 	copy(realPkt, InboundData[:])
 	inboundPackets <- realPkt
@@ -360,30 +363,30 @@ func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_
 }
 
 func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
-	log.Printf("READ !!!!!!!!!!!!!!!!")
+	instance.logger.Printf("READ !!!!!!!!!!!!!!!!")
 	var realpkt []byte
 	var hasPacket bool
+	var waitedSeconds int
+	breakNow := false
 
-	select {
-	case pkt := <-outboundPackets:
-		realpkt = make([]byte, len(pkt))
-		copy(realpkt, pkt)
-		hasPacket = true
-		log.Printf("SENDING OUTBOUND PACKET(!)!(!)(!)!()!(!)!()!(!)(!)!s")
-	default:
-	}
-	var outboundData [1536]byte
-	var finalOutput [8192]byte
-	for i := 0; i < 1536; i++ {
-		outboundData[i] = 0x00
-	}
-	for i := 0; i < len(finalOutput); i++ {
-		finalOutput[i] = 0x00
-	}
-
-	if hasPacket {
-		for i := 0; i < len(realpkt); i++ {
-			outboundData[i] = realpkt[i]
+	for {
+		if breakNow {
+			break
+		}
+		select {
+		case pkt := <-outboundPackets:
+			realpkt = make([]byte, len(pkt))
+			copy(realpkt, pkt)
+			hasPacket = true
+			instance.logger.Printf("SENDING OUTBOUND PACKET(!)!(!)(!)!()!(!)!()!(!)(!)!s")
+			breakNow = true
+			break
+		case <-instance.ticker:
+			waitedSeconds++
+			instance.logger.Printf("waited %d seconds for a packet to arrive", waitedSeconds)
+			if waitedSeconds > 4 {
+				breakNow = true
+			}
 		}
 	}
 
@@ -394,11 +397,13 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 
 	// if instance.currentpbuf != nil {
 	if instance.globalOutputBufAlign == -1 {
-		aa := alignTheBuffer(uintptr(unsafe.Pointer(&instance.globalOutputBuf)))
+		instance.globalOutputBuf = new([8192]byte)
+		aa := alignTheBuffer(uintptr(unsafe.Pointer(instance.globalOutputBuf)))
 		instance.globalOutputBufAlign = aa
 	}
 
-	log.Printf("Using global pbuf")
+	// instance.logger.Printf("Using global pbuf")
+	// log.Printf("The fuck?  \n A: %#v\nB: %#v \n C: %#v", realpkt, instance.globalOutputBuf, instance.globalOutputBufAlign)
 	if hasPacket {
 		for i := 0; i < len(realpkt); i++ {
 			instance.globalOutputBuf[instance.globalOutputBufAlign+i] = realpkt[i]
@@ -410,6 +415,7 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 	}
 
 	// in.pbuf = &currentpbuf[0]
+	// in.pbuf = &instance.globalOutputBuf[instance.globalOutputBufAlign]
 	reply.pbuf = &instance.globalOutputBuf[instance.globalOutputBufAlign]
 	// } else {
 	// 	in.pbuf = &finalOutput[0]
@@ -420,7 +426,6 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 	// 	in.pbuf = &finalOutput[finalOutputOffset]
 	// }
 
-	runtime.KeepAlive(finalOutput)
 }
 
 func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {

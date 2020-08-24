@@ -1,20 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 func main() {
-	fd, err := registerDevice()
-	if err != nil {
-		log.Fatalf("Failed to register device: %v",
-			err)
-	}
-
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGURG)
 	go func() {
@@ -25,7 +21,21 @@ func main() {
 
 	go startTap()
 
-	pollForStuff(fd)
+	fd, err := registerDevice("net3")
+	if err != nil {
+		log.Fatalf("Failed to register device: %v",
+			err)
+	}
+
+	go pollForStuff(fd, "net3")
+
+	fd2, err := registerDevice("net4")
+	if err != nil {
+		log.Fatalf("Failed to register device: %v",
+			err)
+	}
+
+	pollForStuff(fd2, "net4")
 }
 
 var upcomingBug = false
@@ -34,19 +44,27 @@ func trap_me() {
 	log.Print("trap")
 }
 
-func pollForStuff(fd int) interface{} {
+func pollForStuff(fd int, Dirtype string) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
+	ticker := time.NewTicker(time.Second)
 	instance := scstInstance{
 		globalOutputBufAlign: -1,
+		ticker:               ticker.C,
+		logger:               log.New(os.Stdout, fmt.Sprintf("[%s] ", Dirtype), log.Ltime),
+	}
+
+	if instance.antiGCBufferStorage == nil {
+		instance.antiGCBufferStorage = make(map[int][]byte)
 	}
 
 	for {
 
-		log.Printf("ioctl")
+		instance.logger.Printf("ioctl")
 
 		if upcomingBug {
 			trap_me()
 		}
+
 		SCST_USER_REPLY_AND_GET_CMD(fd,
 			&def)
 
@@ -56,14 +74,14 @@ func pollForStuff(fd int) interface{} {
 		switch def.subcode {
 		case SCST_USER_EXEC:
 			// TODO: This is the real biz
-			log.Printf("SCST_USER_EXEC")
+			instance.logger.Printf("SCST_USER_EXEC")
 			// processExecCmd(raw_scst_user_get_cmd_preply)
 			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
 			// log.Printf("SCST_USER_EXEC -> %#v", lol)
 
 			reply := instance.processExecCmd(lol)
 			if reply.pbuf != nil {
-				log.Printf("First byte = %#v", *reply.pbuf)
+				instance.logger.Printf("First byte = %#v", *reply.pbuf)
 			}
 			def.preply = uintptr(unsafe.Pointer(reply))
 			// def = def2
@@ -71,27 +89,50 @@ func pollForStuff(fd int) interface{} {
 
 		case SCST_USER_ALLOC_MEM:
 			// TODO:
-			log.Printf("SCST_USER_ALLOC_MEM")
+
+			//
+			instance.logger.Printf("SCST_USER_ALLOC_MEM")
+
+			instance.logger.Printf("The module wishes for more memory sir.")
+			instance.buffersMade++
+
+			lol := (*scst_user_scsi_cmd_alloc_mem)(unsafe.Pointer(&def))
+			instance.logger.Printf("%#v", lol)
+
+			aaa := make([]byte, 2*(1024*1024))
+
+			finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&aaa[0])))
+
+			instance.antiGCBufferStorage[instance.buffersMade] = aaa
+			instance.currentpbuf = aaa[finalOutputOffset:]
+			memReply := raw_scst_user_alloc_reply{
+				cmd_h:   lol.cmd_h,
+				subcode: lol.subcode,
+				preply:  &aaa[finalOutputOffset],
+			}
+			def.preply = uintptr(unsafe.Pointer(&memReply))
+
+			// raw_scst_user_alloc_reply.preply =
 		case SCST_USER_PARSE:
 			// TODO:
-			log.Printf("SCST_USER_PARSE")
+			instance.logger.Printf("SCST_USER_PARSE")
 		case SCST_USER_ON_CACHED_MEM_FREE:
 			// TODO:
-			log.Printf("SCST_USER_ON_CACHED_MEM_FREE")
+			instance.logger.Printf("SCST_USER_ON_CACHED_MEM_FREE")
 		case SCST_USER_ON_FREE_CMD:
 			// TODO:
-			log.Printf("SCST_USER_ON_FREE_CMD")
+			instance.logger.Printf("SCST_USER_ON_FREE_CMD")
 		case SCST_USER_TASK_MGMT_RECEIVED:
 			// TODO:
-			log.Printf("SCST_USER_TASK_MGMT_RECEIVED")
+			instance.logger.Printf("SCST_USER_TASK_MGMT_RECEIVED")
 		case SCST_USER_TASK_MGMT_DONE:
 			// TODO:
-			log.Printf("SCST_USER_TASK_MGMT_DONE")
+			instance.logger.Printf("SCST_USER_TASK_MGMT_DONE")
 		case SCST_USER_ATTACH_SESS:
 			// TODO: Apparently we don't need to do anything for this.
-			log.Printf("SCST_USER_ATTACH_SESS")
+			instance.logger.Printf("SCST_USER_ATTACH_SESS")
 			lol := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&def))
-			log.Printf("%#v", lol)
+			instance.logger.Printf("%#v", lol)
 			reply := raw_scst_user_reply_cmd_result{
 				cmd_h:   def.cmd_h,
 				subcode: def.subcode,
@@ -101,9 +142,9 @@ func pollForStuff(fd int) interface{} {
 			def.preply = uintptr(unsafe.Pointer(&reply))
 		case SCST_USER_DETACH_SESS:
 			// TODO: Apparently this is where the interesting stuff happens???
-			log.Printf("SCST_USER_DETACH_SESS")
+			instance.logger.Printf("SCST_USER_DETACH_SESS")
 			lol := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&def))
-			log.Printf("%#v", lol)
+			instance.logger.Printf("%#v", lol)
 
 			reply := raw_scst_user_reply_cmd_result{
 				cmd_h:   def.cmd_h,

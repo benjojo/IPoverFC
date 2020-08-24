@@ -52,7 +52,7 @@ $1 = {
 
 */
 
-func registerDevice() (int, error) {
+func registerDevice(name string) (int, error) {
 	fd, err := unix.Open("/dev/scst_user", unix.O_RDWR, 0)
 	if err != nil {
 		log.Fatal("Starting Error; /dev/scst_user -> ", err.Error())
@@ -65,6 +65,9 @@ func registerDevice() (int, error) {
 		'1', 'b', 'e', 'e', '1', 'd', '7', 'c', 'b', 'b', 'a', '8', '0', '0', '3', '7', 'f', '3', 'f', '5', '7', '2', 'c',
 		'4', '2', 'a', 'f', '5', '3', 'c', '5', 'a', '3', 'e', '5', '6', 'e', 'b', '3', 'c', '4', 'f', '5', '2', '3', 'c', '0', 0x00}
 
+	var nameBytes [50]byte
+	copy(nameBytes[:], []byte(name))
+
 	def := raw_scst_user_dev_desc{
 		Version_str: &verString[0],
 		License_str: &gplString[0],
@@ -76,7 +79,7 @@ func registerDevice() (int, error) {
 			ext_copy_remap_supported: 1,
 		},
 		block_size: 512,
-		name:       [50]byte{'n', 'e', 't', '3', 0},
+		name:       nameBytes,
 		sgv_name:   [50]byte{0},
 	}
 
@@ -90,6 +93,22 @@ func SCST_USER_REGISTER_DEVICE(fd int, def *raw_scst_user_dev_desc) error {
 }
 
 func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) error {
+	tmp := uintptr(unsafe.Pointer(def))
+	for {
+		err := ioctl(fd, 3256907013, tmp)
+		log.Printf("ooo %v", err)
+		if err != nil {
+			log.Printf("======================================= %v =======================================", err)
+			time.Sleep(time.Second)
+		}
+		if err == errEINTR {
+			continue
+		}
+		return err
+	}
+}
+
+func SCST_USER_REPLY_MEM_ALLOC(fd int, def *raw_scst_user_alloc_reply) error {
 	tmp := uintptr(unsafe.Pointer(def))
 	for {
 		err := ioctl(fd, 3256907013, tmp)

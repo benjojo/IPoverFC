@@ -13,42 +13,41 @@ import (
 var lastRead = 0
 
 func main() {
-	f, err := os.Open("/dev/sg1")
+	f1, err := os.Open("/dev/sg1")
+	if err != nil {
+		log.Fatalf("Failed to open ATA device")
+	}
+
+	f2, err := os.Open("/dev/sg2")
 	if err != nil {
 		log.Fatalf("Failed to open ATA device")
 	}
 
 	go startTap()
+	// sendReadSgio(f1)
+	// sendReadSgio(f1)
+
+	go func() {
+		for {
+			pkt2 := <-outboundPackets
+			err := sendSgio(f1, pkt2)
+			if err != nil {
+				log.Printf("ATA error on write %v", err)
+				time.Sleep(time.Second)
+			}
+		}
+	}()
 
 	for {
 		// hadRead := false
-		pkt, err := sendReadSgio(f)
+		pkt, err := sendReadSgio(f2)
 		if err != nil {
 			log.Printf("ATA error on read %v", err)
+			time.Sleep(time.Second)
 		} else {
 			if len(pkt) != 0 {
 				inboundPackets <- pkt
-				// hadRead = true
-				lastRead = 0
-			} else {
-				lastRead++
 			}
-		}
-
-		select {
-		case pkt2 := <-outboundPackets:
-			err := sendSgio(f, pkt2)
-			if err != nil {
-				log.Printf("ATA error on read %v", err)
-			}
-
-		default:
-		}
-		// sendSgio(f)
-		if lastRead < 10 {
-			time.Sleep(time.Millisecond * 1)
-		} else {
-			time.Sleep(time.Millisecond * 10)
 		}
 	}
 }
@@ -109,6 +108,8 @@ func sendSgio(f *os.File, pkt []byte) error {
 		DxferLen:       1536,
 		Dxferp:         &testbuf[0],
 	}
+
+	// log.Printf("Test %#v", testbuf)
 
 	if err := sgio.SgioSyscall(f, ioHdr); err != nil {
 		return err

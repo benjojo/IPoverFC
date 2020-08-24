@@ -154,6 +154,25 @@ type raw_scst_user_get_cmd_preply struct {
 	padding [16 * 1024]byte // I'm scared of the kernel, I want to not accidently overshoot
 }
 
+type raw_scst_user_alloc_reply struct {
+	cmd_h   uint32
+	subcode uint32
+	preply  *byte           // Pointer to a reply
+	padding [16 * 1024]byte // I'm scared of the kernel, I want to not accidently overshoot
+}
+
+type scst_user_scsi_cmd_alloc_mem struct {
+	cmd_h          uint32
+	subcode        uint32
+	sess_h         uintptr
+	cdb            [16]byte
+	cdb_len        uint16
+	alloc_len      int32
+	queue_type     uint8
+	data_direction uint8
+	sn             uint32
+}
+
 type raw_scst_user_get_cmd_scst_user_sess struct {
 	cmd_h                  uint32
 	subcode                uint32
