@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"log"
 	"runtime"
 	"time"
@@ -395,8 +396,10 @@ func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_
 	// }
 
 	copy(realPkt, InboundData[:])
+	PktLen := binary.BigEndian.Uint16(realPkt[:2])
+
 	// inboundPackets <- realPkt
-	instance.tuntap.Write(realPkt[:512*3])
+	instance.tuntap.Write(realPkt[2 : 2+PktLen])
 
 	reply.status = SCST_EXEC_REPLY_COMPLETED
 }
@@ -463,8 +466,12 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 	// }
 	// log.Printf("The fuck?  \n A: %#v\nB: %#v \n C: %#v", realpkt, instance.globalOutputBuf, instance.globalOutputBufAlign)
 	if hasPacket {
+		var PLenbytes [2]byte
+		binary.BigEndian.PutUint16(PLenbytes[:], uint16(len(realpkt)))
+		instance.globalOutputBuf[instance.globalOutputBufAlign] = PLenbytes[0]
+		instance.globalOutputBuf[instance.globalOutputBufAlign+1] = PLenbytes[1]
 		for i := 0; i < len(realpkt); i++ {
-			instance.globalOutputBuf[instance.globalOutputBufAlign+i] = realpkt[i]
+			instance.globalOutputBuf[instance.globalOutputBufAlign+2+i] = realpkt[i]
 		}
 	} else {
 		for i := 0; i < 1536; i++ {

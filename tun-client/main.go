@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -105,7 +106,12 @@ func sendSgio(f *os.File, pkt []byte) error {
 	// inqCmdBlk[12] = 0x05
 	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
 
-	copy(testbuf[:], pkt)
+	var PLenbytes [2]byte
+	binary.BigEndian.PutUint16(PLenbytes[:], uint16(len(pkt)))
+	testbuf[0] = PLenbytes[0]
+	testbuf[1] = PLenbytes[1]
+
+	copy(testbuf[2:], pkt)
 	for i := 0; i < len(pkt); i++ {
 		pkt[i] = 0x00
 	}
@@ -176,14 +182,20 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 	}
 
 	copy(pkt, testbuf[:])
+	if len(pkt) != 0 {
+		PktLen := binary.BigEndian.Uint16(pkt[:2])
+		if PktLen != 0 {
+			if *debugEnabled {
+				if pkt[12] != 0 {
+					// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
+					fmt.Print(",")
+				} else {
+					fmt.Print(".")
+				}
+			}
+			return pkt[2 : 2+PktLen], nil
 
-	if *debugEnabled {
-		if pkt[12] != 0 {
-			// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
-			fmt.Print(",")
-		} else {
-			fmt.Print(".")
 		}
 	}
-	return pkt[:], nil
+	return pkt, nil
 }
