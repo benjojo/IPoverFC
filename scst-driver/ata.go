@@ -14,7 +14,7 @@ type scstInstance struct {
 	antiGCBufferStorage  map[int][]byte
 	buffersMade          int
 	currentpbuf          []byte
-	globalOutputBuf      *[8192]byte
+	globalOutputBuf      *[32768 + 8192]byte
 	globalOutputBufAlign int
 	ticker               <-chan time.Time
 	tuntap               *water.Interface
@@ -388,21 +388,21 @@ func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_
 	// if *debugLogs {
 	// instance.logger.Printf("the fuck?? %#v", in.pbuf)
 	// }
-	realPkt := make([]byte, 1536)
-	InboundData := (*[1536]byte)(unsafe.Pointer(in.pbuf))
+	realPkt := make([]byte, 32768)
+	InboundData := (*[32768]byte)(unsafe.Pointer(in.pbuf))
 	// if *debugLogs {
 	// instance.logger.Printf("%#v", InboundData)
 	// }
 
 	copy(realPkt, InboundData[:])
 	// inboundPackets <- realPkt
-	instance.tuntap.Write(realPkt)
+	instance.tuntap.Write(realPkt[:512*3])
 
 	reply.status = SCST_EXEC_REPLY_COMPLETED
 }
 
 func (instance *scstInstance) babysitTunTapReads() {
-	outboundPackets = make(chan []byte, 0)
+	outboundPackets = make(chan []byte, 32)
 	buf := make([]byte, 512*3)
 	for {
 		n, err := instance.tuntap.Read(buf)
@@ -447,13 +447,13 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 	}
 
 	// outboundData[0] = 0xBE
-	reply.resp_data_len = 1536
+	reply.resp_data_len = 32768
 	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
 	reply.sense_len = 0
 
 	// if instance.currentpbuf != nil {
 	if instance.globalOutputBufAlign == -1 {
-		instance.globalOutputBuf = new([8192]byte)
+		instance.globalOutputBuf = new([32768 + 8192]byte)
 		aa := alignTheBuffer(uintptr(unsafe.Pointer(instance.globalOutputBuf)))
 		instance.globalOutputBufAlign = aa
 	}

@@ -119,7 +119,7 @@ func sendSgio(f *os.File, pkt []byte) error {
 		Sbp:            &senseBuf[0],
 		MxSbLen:        sgio.SENSE_BUF_LEN,
 		Timeout:        0,
-		DxferLen:       1536,
+		DxferLen:       512 * 64,
 		Dxferp:         &testbuf[0],
 	}
 
@@ -138,8 +138,8 @@ func sendSgio(f *os.File, pkt []byte) error {
 func sendReadSgio(f *os.File) (pkt []byte, err error) {
 
 	var inqCmdBlk [sgAta16Len]uint8
-	var testbuf [1536]uint8
-	pkt = make([]byte, 1536)
+	var testbuf [512 * 64]uint8
+	pkt = make([]byte, 512*64)
 	inqCmdBlk[0] = 0x88
 
 	randLBA := make([]byte, 3)
@@ -150,6 +150,7 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 
 	// inqCmdBlk[12] = 0x05
 	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
+	inqCmdBlk[13] = 0x40 // 512 (block size) * 64
 
 	testbuf[0] = 0x00
 
@@ -162,7 +163,7 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 		Sbp:            &senseBuf[0],
 		MxSbLen:        sgio.SENSE_BUF_LEN,
 		Timeout:        0,
-		DxferLen:       1536,
+		DxferLen:       512 * 64,
 		Dxferp:         &testbuf[0],
 	}
 
