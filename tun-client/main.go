@@ -15,6 +15,7 @@ var lastRead = 0
 var debugEnabled = flag.Bool("debug", false, "Enable debug text")
 
 func main() {
+	flag.Parse()
 	f1, err := os.Open("/dev/sg1")
 	if err != nil {
 		log.Fatalf("Failed to open ATA device")
@@ -25,14 +26,22 @@ func main() {
 		log.Fatalf("Failed to open ATA device")
 	}
 
-	go startTap()
+	tuntap := startTap()
 	// sendReadSgio(f1)
 	// sendReadSgio(f1)
 
 	go func() {
+		pkt2 := make([]byte, 1536)
 		for {
-			pkt2 := <-outboundPackets
-			err := sendSgio(f1, pkt2)
+			// pkt2 := <-outboundPackets
+
+			n, err := tuntap.Read(pkt2)
+			if err != nil {
+				log.Printf("TUNTAP ERROR ON READ: %v", err)
+				time.Sleep(time.Second)
+				continue
+			}
+			err = sendSgio(f1, pkt2[:n])
 			if err != nil {
 				log.Printf("ATA error on write %v", err)
 				time.Sleep(time.Second)
@@ -48,7 +57,10 @@ func main() {
 			time.Sleep(time.Second)
 		} else {
 			if len(pkt) != 0 {
-				inboundPackets <- pkt
+				if pkt[12] != 0x00 {
+					tuntap.Write(pkt)
+				}
+				// inboundPackets <- pkt
 			}
 		}
 	}

@@ -9,9 +9,12 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/songgao/water"
 )
 
 func main() {
+	flag.Parse()
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGURG)
 	go func() {
@@ -20,7 +23,7 @@ func main() {
 		}
 	}()
 
-	go startTap()
+	tunInterface := startTap()
 
 	fd, err := registerDevice("net3")
 	if err != nil {
@@ -28,7 +31,7 @@ func main() {
 			err)
 	}
 
-	go pollForStuff(fd, "net3")
+	go pollForStuff(fd, "net3", tunInterface)
 
 	fd2, err := registerDevice("net4")
 	if err != nil {
@@ -36,7 +39,7 @@ func main() {
 			err)
 	}
 
-	pollForStuff(fd2, "net4")
+	pollForStuff(fd2, "net4", tunInterface)
 }
 
 var upcomingBug = false
@@ -47,18 +50,20 @@ func trap_me() {
 
 var debugLogs = flag.Bool("debug", false, "deads")
 
-func pollForStuff(fd int, Dirtype string) interface{} {
+func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
 	def := raw_scst_user_get_cmd_preply{}
 	ticker := time.NewTicker(time.Second)
 	instance := scstInstance{
 		globalOutputBufAlign: -1,
 		ticker:               ticker.C,
 		logger:               log.New(os.Stdout, fmt.Sprintf("[%s] ", Dirtype), log.Ltime),
+		tuntap:               iface,
 	}
 
 	if instance.antiGCBufferStorage == nil {
 		instance.antiGCBufferStorage = make(map[int][]byte)
 	}
+	go instance.babysitTunTapReads()
 
 	for {
 

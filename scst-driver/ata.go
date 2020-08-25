@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"time"
 	"unsafe"
+
+	"github.com/songgao/water"
 )
 
 type scstInstance struct {
@@ -15,6 +17,7 @@ type scstInstance struct {
 	globalOutputBuf      *[8192]byte
 	globalOutputBufAlign int
 	ticker               <-chan time.Time
+	tuntap               *water.Interface
 }
 
 func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_exec) *raw_scst_user_reply_cmd_exec_reply_sense {
@@ -392,9 +395,21 @@ func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_
 	// }
 
 	copy(realPkt, InboundData[:])
-	inboundPackets <- realPkt
+	// inboundPackets <- realPkt
+	instance.tuntap.Write(realPkt)
 
 	reply.status = SCST_EXEC_REPLY_COMPLETED
+}
+
+func (instance *scstInstance) babysitTunTapReads() {
+	outboundPackets = make(chan []byte, 0)
+	buf := make([]byte, 512*3)
+	for {
+		n, err := instance.tuntap.Read(buf)
+		if err == nil {
+			outboundPackets <- buf[:n]
+		}
+	}
 }
 
 func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
