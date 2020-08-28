@@ -32,7 +32,7 @@ func main() {
 	// sendReadSgio(f1)
 
 	go func() {
-		pkt2 := make([]byte, 1536)
+		pkt2 := make([]byte, 9000)
 		for {
 			// pkt2 := <-outboundPackets
 
@@ -95,7 +95,7 @@ const (
 func sendSgio(f *os.File, pkt []byte) error {
 	// log.Printf("Packet to be ATA written %v", pkt)
 	var inqCmdBlk [sgAta16Len]uint8
-	var testbuf [1536]uint8
+	var testbuf [19 * 512]uint8
 	inqCmdBlk[0] = 0x8a
 	// inqCmdBlk[9] = 0xFF
 
@@ -104,7 +104,8 @@ func sendSgio(f *os.File, pkt []byte) error {
 	copy(inqCmdBlk[6:], randLBA)
 
 	// inqCmdBlk[12] = 0x05
-	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
+	// inqCmdBlk[13] = 0x03 // 512 (block size) * 3
+	inqCmdBlk[13] = 0x13 // 512 (block size) * 19
 
 	var PLenbytes [2]byte
 	binary.BigEndian.PutUint16(PLenbytes[:], uint16(len(pkt)))
@@ -125,7 +126,7 @@ func sendSgio(f *os.File, pkt []byte) error {
 		Sbp:            &senseBuf[0],
 		MxSbLen:        sgio.SENSE_BUF_LEN,
 		Timeout:        0,
-		DxferLen:       512 * 64,
+		DxferLen:       19 * 512,
 		Dxferp:         &testbuf[0],
 	}
 
@@ -144,7 +145,8 @@ func sendSgio(f *os.File, pkt []byte) error {
 func sendReadSgio(f *os.File) (pkt []byte, err error) {
 
 	var inqCmdBlk [sgAta16Len]uint8
-	var testbuf [512 * 64]uint8
+	// var testbuf [512 * 3]uint8
+	var testbuf [512 * 19]uint8
 	pkt = make([]byte, 512*64)
 	inqCmdBlk[0] = 0x88
 
@@ -155,8 +157,8 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 	inqCmdBlk[9] = 0xFF
 
 	// inqCmdBlk[12] = 0x05
-	inqCmdBlk[13] = 0x03 // 512 (block size) * 3
-	inqCmdBlk[13] = 0x40 // 512 (block size) * 64
+	// inqCmdBlk[13] = 0x03 // 512 (block size) * 3
+	inqCmdBlk[13] = 0x13 // 512 (block size) * 19 = 9k
 
 	testbuf[0] = 0x00
 
@@ -169,7 +171,7 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 		Sbp:            &senseBuf[0],
 		MxSbLen:        sgio.SENSE_BUF_LEN,
 		Timeout:        0,
-		DxferLen:       512 * 64,
+		DxferLen:       512 * 19,
 		Dxferp:         &testbuf[0],
 	}
 
