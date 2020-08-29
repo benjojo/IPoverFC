@@ -63,9 +63,6 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 		}
 
 	*/
-	// log.Printf("\ncmd_h:%x, subcode:%x, cdb (%d):%#v, lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d"
-
-	// log.Printf("------> Timeout %d \n%#v", in.timeout, in)
 	if *debugLogs {
 		instance.logger.Printf("cmd_h:%x, subcode:%x lba:%d, data_len:%d, bufflen:%d, alloc_len:%d, pbuf:%#v, queue_type:%x, data_direction:%x, partial:%x,\n timeout:%d, p_out_buf:%#v, out_bufflen:%d\ncdb (%d):%#v",
 			in.cmd_h, in.subcode, in.lba, in.data_len, in.bufflen, in.alloc_len, in.pbuf, in.queue_type, in.data_direction, in.partial, in.timeout, in.p_out_buf, in.out_bufflen, in.cdb_len, in.cdb)
@@ -83,6 +80,8 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 
 	if (in.alloc_len != 0 && in.pbuf == nil) || len(instance.antiGCBufferStorage) == 0 {
 		// ooh, we need to alloc a buffer?
+		// For this we need to make a page aligned buffer.
+		// and set it to the reply of the responce.
 		if *debugLogs {
 			instance.logger.Printf("The module wishes for more memory sir.")
 		}
@@ -99,11 +98,6 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 		instance.antiGCBufferStorage[instance.buffersMade] = aaa
 		instance.currentpbuf = aaa[finalOutputOffset:]
 	}
-	// if instance.currentpbuf != nil {
-	// 	for i := 0; i < 1536; i++ {
-	// 		instance.currentpbuf[i] = 0x00
-	// 	}
-	// }
 
 	if in.data_direction == 2 { // READ
 		reply.resp_data_len = in.bufflen
@@ -136,7 +130,6 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 			instance.logger.Printf("ATA_INQUIRY")
 		}
 		handleATAinquiry(in, &reply)
-		// Haha oh my fucking god.
 	case ATA_READ_CAPACITY:
 		if *debugLogs {
 			instance.logger.Printf("ATA_READ_CAPACITY")
@@ -179,7 +172,6 @@ func (instance *scstInstance) processExecCmd(in *raw_scst_user_get_cmd_scsi_cmd_
 	}
 
 	runtime.KeepAlive(reply)
-	// return uintptr(unsafe.Pointer(&reply)) // lol total segfault bait
 	return &reply
 }
 
@@ -192,19 +184,13 @@ func handleATAsense(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 
 	offset := 0
 
-	// blocksize = dev->block_size;
-	// nblocks = dev->nblocks;
-
 	devtype := DEVICE_TYPE_SCANNER /* type dev */
 	dbd := in.cdb[1] & 0x08
-	// pcontrol := (in.cdb[2] & 0xc0) >> 6
 	pcode := in.cdb[2] & 0x3f
-	// subpcode := in.cdb[3]
 	msense_6 := (0x1a == in.cdb[0])
 	dev_spec := 0x80
 
 	blocksize := 512
-	// nblocks := 16
 
 	if pcode == 0x03 {
 		// Unhandleable
@@ -236,8 +222,6 @@ func handleATAsense(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_use
 
 		offset += 8 /* increment offset */
 	}
-
-	// bp := buf + offset
 
 	log.Printf("pcode = %d", pcode)
 
@@ -334,12 +318,6 @@ func alignTheBuffer(ptr uintptr) int {
 	offset2 := int(offset-4096) * -1
 	offset3 := uintptr(offset2)
 
-	if (ptr+(offset3))%4096 != 0 {
-		// log.Fatalf("Nope, try again\nA: %d\nB:%d\n%d", ptr, ptr+(offset3), (ptr+(ptr%4096))%4096)
-	} else {
-		// log.Printf("Buf debug\nA: %d (%x)\nB:%d (%x)\n%d", ptr, ptr, ptr+(offset3), ptr+(offset3), (ptr+(offset3))%4096)
-	}
-
 	return int(offset3)
 }
 
@@ -362,7 +340,6 @@ func handleATAreadCapacity(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_s
 	resp_len := 8
 	log.Printf("debug: resp_len = %d", resp_len)
 
-	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 	reply.pbuf = &finalOutput[0]
 	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&finalOutput)))
 
@@ -382,23 +359,13 @@ func (instance *scstInstance) handleATAwrite(in *raw_scst_user_get_cmd_scsi_cmd_
 	if *debugLogs {
 		instance.logger.Printf("Incoming PACKET######################################")
 	}
-
-	// data_len:1536, bufflen:1536,
-
 	// ignore the "misuse of unsafe.pointer", the linter is wrong.
-	// if *debugLogs {
-	// instance.logger.Printf("the fuck?? %#v", in.pbuf)
-	// }
 	realPkt := make([]byte, 32768)
 	InboundData := (*[32768]byte)(unsafe.Pointer(in.pbuf))
-	// if *debugLogs {
-	// instance.logger.Printf("%#v", InboundData)
-	// }
 
 	copy(realPkt, InboundData[:])
 	PktLen := binary.BigEndian.Uint16(realPkt[:2])
 
-	// inboundPackets <- realPkt
 	instance.tuntap.Write(realPkt[2 : 2+PktLen])
 
 	reply.status = SCST_EXEC_REPLY_COMPLETED
@@ -451,20 +418,13 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 
 	// outboundData[0] = 0xBE
 	reply.resp_data_len = 512 * 19
-	// reply.pbuf = uintptr(unsafe.Pointer(&outboundData))
 	reply.sense_len = 0
 
-	// if instance.currentpbuf != nil {
 	if instance.globalOutputBufAlign == -1 {
 		instance.globalOutputBuf = new([9728 + 8192]byte)
 		aa := alignTheBuffer(uintptr(unsafe.Pointer(instance.globalOutputBuf)))
 		instance.globalOutputBufAlign = aa
 	}
-
-	// if *debugLogs {
-	// instance.logger.Printf("Using global pbuf")
-	// }
-	// log.Printf("The fuck?  \n A: %#v\nB: %#v \n C: %#v", realpkt, instance.globalOutputBuf, instance.globalOutputBufAlign)
 	if hasPacket {
 		var PLenbytes [2]byte
 		binary.BigEndian.PutUint16(PLenbytes[:], uint16(len(realpkt)))
@@ -479,18 +439,7 @@ func (instance *scstInstance) handleATAread(in *raw_scst_user_get_cmd_scsi_cmd_e
 		}
 	}
 
-	// in.pbuf = &currentpbuf[0]
-	// in.pbuf = &instance.globalOutputBuf[instance.globalOutputBufAlign]
 	reply.pbuf = &instance.globalOutputBuf[instance.globalOutputBufAlign]
-	// } else {
-	// 	in.pbuf = &finalOutput[0]
-	// 	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(in.pbuf)))
-
-	// 	copy(finalOutput[finalOutputOffset:], outboundData[:])
-	// 	in.pbuf = &finalOutput[finalOutputOffset]
-	// 	in.pbuf = &finalOutput[finalOutputOffset]
-	// }
-
 }
 
 func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_user_reply_cmd_exec_reply_sense) {
@@ -648,9 +597,6 @@ func handleATAinquiry(in *raw_scst_user_get_cmd_scsi_cmd_exec, reply *raw_scst_u
 	}
 
 	log.Printf("debug: resp_len = %d", resp_len)
-
-	// in.pbuf = uintptr(unsafe.Pointer(&finalOutput))
-	// reply.pbuf = uintptr(unsafe.Pointer(&finalOutput))
 
 	finalOutputOffset := alignTheBuffer(uintptr(unsafe.Pointer(&finalOutput)))
 

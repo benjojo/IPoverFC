@@ -25,25 +25,27 @@ func main() {
 
 	tunInterface := startTap()
 
-	fd, err := registerDevice("net3")
+	net3fd, err := registerDevice("net3")
 	if err != nil {
 		log.Fatalf("Failed to register device: %v",
 			err)
 	}
 
-	go pollForStuff(fd, "net3", tunInterface)
+	go pollForStuff(net3fd, "net3", tunInterface)
 
-	fd2, err := registerDevice("net4")
+	net4fd, err := registerDevice("net4")
 	if err != nil {
 		log.Fatalf("Failed to register device: %v",
 			err)
 	}
 
-	pollForStuff(fd2, "net4", tunInterface)
+	pollForStuff(net4fd, "net4", tunInterface)
 }
 
 var upcomingBug = false
 
+// Used for GDB debugging so there is a easy
+// place to breakpoint
 func trap_me() {
 	log.Print("trap")
 }
@@ -51,7 +53,7 @@ func trap_me() {
 var debugLogs = flag.Bool("debug", false, "deads")
 
 func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
-	def := raw_scst_user_get_cmd_preply{}
+	inCmdStruct := raw_scst_user_get_cmd_preply{}
 	ticker := time.NewTicker(time.Second)
 	instance := scstInstance{
 		globalOutputBufAlign: -1,
@@ -76,49 +78,67 @@ func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
 		}
 
 		SCST_USER_REPLY_AND_GET_CMD(fd,
-			&def)
+			&inCmdStruct)
 
 		if *debugLogs {
 			log.Printf("Entering Switch")
 		}
-		def.preply = 0
+		inCmdStruct.preply = 0
 
-		switch def.subcode {
+		switch inCmdStruct.subcode {
 		case SCST_USER_EXEC:
-			// TODO: This is the real biz
+			// This is the core path, Here is where all the SCSI commands pass over.
 			if *debugLogs {
 				instance.logger.Printf("SCST_USER_EXEC")
 			}
-			// processExecCmd(raw_scst_user_get_cmd_preply)
-			lol := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&def))
-			// log.Printf("SCST_USER_EXEC -> %#v", lol)
 
-			reply := instance.processExecCmd(lol)
-			if reply.pbuf != nil {
+			/*
+				   So handling this is a huge PITA because it's a union, the only other interface I've
+				   seen that does this is TIPC, thankfully there is golang support from that so we can just
+				   steal how they deal with it:
+
+				   https://go.googlesource.com/sys/+/master/unix/syscall_linux.go#1056
+
+				   	switch pp.Addrtype {
+						case TIPC_SERVICE_RANGE:
+							sa.Addr = (*TIPCServiceRange)(unsafe.Pointer(&pp.Addr))
+						case TIPC_SERVICE_ADDR:
+							sa.Addr = (*TIPCServiceName)(unsafe.Pointer(&pp.Addr))
+						case TIPC_SOCKET_ADDR:
+							sa.Addr = (*TIPCSocketAddr)(unsafe.Pointer(&pp.Addr))
+						default:
+							return nil, EINVAL
+					}
+			*/
+
+			execCmd := (*raw_scst_user_get_cmd_scsi_cmd_exec)(unsafe.Pointer(&inCmdStruct))
+
+			execReply := instance.processExecCmd(execCmd)
+			if execReply.pbuf != nil {
 				if *debugLogs {
-					instance.logger.Printf("First byte = %#v", *reply.pbuf)
+					instance.logger.Printf("First byte = %#v", *execReply.pbuf)
 				}
 			}
-			def.preply = uintptr(unsafe.Pointer(reply))
-			// def = def2
-			// def_exec = lol
+			inCmdStruct.preply = uintptr(unsafe.Pointer(execReply))
 
 		case SCST_USER_ALLOC_MEM:
-			// TODO:
+			// This will fire when there has not been a preply buffer to use before
+			// and there is a pending WRITE of some sorts, so the module needs
+			// some userspace memory to store it in. When you reply to this
+			// a exec will instantly follow.
 
-			//
 			if *debugLogs {
 				instance.logger.Printf("SCST_USER_ALLOC_MEM")
 			}
 
 			if *debugLogs {
-				instance.logger.Printf("The module wishes for more memory sir.")
+				instance.logger.Printf("The kmodule wishes for more memory sir.")
 			}
 			instance.buffersMade++
 
-			lol := (*scst_user_scsi_cmd_alloc_mem)(unsafe.Pointer(&def))
+			execCmd := (*scst_user_scsi_cmd_alloc_mem)(unsafe.Pointer(&inCmdStruct))
 			if *debugLogs {
-				instance.logger.Printf("%#v", lol)
+				instance.logger.Printf("%#v", execCmd)
 			}
 
 			aaa := make([]byte, 2*(1024*1024))
@@ -128,11 +148,11 @@ func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
 			instance.antiGCBufferStorage[instance.buffersMade] = aaa
 			instance.currentpbuf = aaa[finalOutputOffset:]
 			memReply := raw_scst_user_alloc_reply{
-				cmd_h:   lol.cmd_h,
-				subcode: lol.subcode,
+				cmd_h:   execCmd.cmd_h,
+				subcode: execCmd.subcode,
 				preply:  &aaa[finalOutputOffset],
 			}
-			def.preply = uintptr(unsafe.Pointer(&memReply))
+			inCmdStruct.preply = uintptr(unsafe.Pointer(&memReply))
 
 			// raw_scst_user_alloc_reply.preply =
 		case SCST_USER_PARSE:
@@ -165,65 +185,36 @@ func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
 			if *debugLogs {
 				instance.logger.Printf("SCST_USER_ATTACH_SESS")
 			}
-			lol := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&def))
+			AttachCMD := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&inCmdStruct))
 			if *debugLogs {
-				instance.logger.Printf("%#v", lol)
+				instance.logger.Printf("%#v", AttachCMD)
 			}
 			reply := raw_scst_user_reply_cmd_result{
-				cmd_h:   def.cmd_h,
-				subcode: def.subcode,
+				cmd_h:   inCmdStruct.cmd_h,
+				subcode: inCmdStruct.subcode,
 				result:  0,
 			}
 
-			def.preply = uintptr(unsafe.Pointer(&reply))
+			inCmdStruct.preply = uintptr(unsafe.Pointer(&reply))
 		case SCST_USER_DETACH_SESS:
-			// TODO: Apparently this is where the interesting stuff happens???
+			// TODO: Apparently we don't need to do anything for this.
 			if *debugLogs {
 				instance.logger.Printf("SCST_USER_DETACH_SESS")
 			}
-			lol := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&def))
+			AttachCMD := (*raw_scst_user_get_cmd_scst_user_sess)(unsafe.Pointer(&inCmdStruct))
 			if *debugLogs {
-				instance.logger.Printf("%#v", lol)
+				instance.logger.Printf("%#v", AttachCMD)
 			}
 
 			reply := raw_scst_user_reply_cmd_result{
-				cmd_h:   def.cmd_h,
-				subcode: def.subcode,
+				cmd_h:   inCmdStruct.cmd_h,
+				subcode: inCmdStruct.subcode,
 				result:  0,
 			}
 
-			def.preply = uintptr(unsafe.Pointer(&reply))
+			inCmdStruct.preply = uintptr(unsafe.Pointer(&reply))
 		}
-
-		// time.Sleep(time.Second)
 	}
-	/*
-	   (gdb) print cmd
-	   $1 = {cmd_h = 0, subcode = 0, {preply = 0, sess = {sess_h = 0, lun = 0, threads_num = 0, rd_ {etc etc}
-	*/
-
-	/* haha this struct would have just changed behind our backs this is so unholy */
-
-	/*
-
-		   So handling this is a huge PITA because it's a union, the only other interface I've
-		   seen that does this is TIPC, thankfully there is golang support from that so we can just
-		   steal how they deal with it:
-
-		   https://go.googlesource.com/sys/+/master/unix/syscall_linux.go#1056
-
-		   	switch pp.Addrtype {
-				case TIPC_SERVICE_RANGE:
-					sa.Addr = (*TIPCServiceRange)(unsafe.Pointer(&pp.Addr))
-				case TIPC_SERVICE_ADDR:
-					sa.Addr = (*TIPCServiceName)(unsafe.Pointer(&pp.Addr))
-				case TIPC_SOCKET_ADDR:
-					sa.Addr = (*TIPCSocketAddr)(unsafe.Pointer(&pp.Addr))
-				default:
-					return nil, EINVAL
-			}
-
-	*/
 
 	/*
 		   (gdb) print cmd
@@ -245,9 +236,4 @@ func pollForStuff(fd int, Dirtype string, iface *water.Interface) interface{} {
 					<... the rest is garbage beacuse of the union?>}
 
 	*/
-
-	// log.Printf("Holy shit %#v", def)
-	// log.Printf("Holy -> %#v", string(def.initiator_name[:]))
-	// log.Printf("shit -> %#v", string(def.target_name[:]))
-
 }

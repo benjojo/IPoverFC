@@ -99,7 +99,7 @@ func SCST_USER_REPLY_AND_GET_CMD(fd int, def *raw_scst_user_get_cmd_preply) erro
 	for {
 		err := ioctl(fd, 3256907013, tmp)
 		if *debugLogs {
-			log.Printf("ooo %v", err)
+			log.Printf("SCST_USER_REPLY_AND_GET_CMD = %v", err)
 		}
 		if err != nil {
 			if *debugLogs {
@@ -119,7 +119,7 @@ func SCST_USER_REPLY_MEM_ALLOC(fd int, def *raw_scst_user_alloc_reply) error {
 	for {
 		err := ioctl(fd, 3256907013, tmp)
 		if *debugLogs {
-			log.Printf("ooo %v", err)
+			log.Printf("SCST_USER_REPLY_MEM_ALLOC = %v", err)
 		}
 		if err != nil {
 			if *debugLogs {
@@ -132,14 +132,6 @@ func SCST_USER_REPLY_MEM_ALLOC(fd int, def *raw_scst_user_alloc_reply) error {
 		}
 		return err
 	}
-}
-
-func SCST_USER_REPLY_AND_GET_CMD_ON_EXEC(fd int, def *raw_scst_user_get_cmd_scsi_cmd_exec) error {
-	err := ioctl(fd, 3256907013, uintptr(unsafe.Pointer(def)))
-	if *debugLogs {
-		log.Printf("ooo %v", err)
-	}
-	return err
 }
 
 func ioctl(fd int, req uint, arg uintptr) (err error) {

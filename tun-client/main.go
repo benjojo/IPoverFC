@@ -28,14 +28,10 @@ func main() {
 	}
 
 	tuntap := startTap()
-	// sendReadSgio(f1)
-	// sendReadSgio(f1)
 
 	go func() {
 		pkt2 := make([]byte, 9000)
 		for {
-			// pkt2 := <-outboundPackets
-
 			n, err := tuntap.Read(pkt2)
 			if err != nil {
 				log.Printf("TUNTAP ERROR ON READ: %v", err)
@@ -51,7 +47,6 @@ func main() {
 	}()
 
 	for {
-		// hadRead := false
 		pkt, err := sendReadSgio(f2)
 		if err != nil {
 			log.Printf("ATA error on read %v", err)
@@ -61,7 +56,6 @@ func main() {
 				if pkt[12] != 0x00 {
 					tuntap.Write(pkt)
 				}
-				// inboundPackets <- pkt
 			}
 		}
 	}
@@ -99,6 +93,7 @@ func sendSgio(f *os.File, pkt []byte) error {
 	inqCmdBlk[0] = 0x8a
 	// inqCmdBlk[9] = 0xFF
 
+	// Set a random LBA to avoid caching
 	randLBA := make([]byte, 3)
 	rand.Read(randLBA)
 	copy(inqCmdBlk[6:], randLBA)
@@ -129,8 +124,6 @@ func sendSgio(f *os.File, pkt []byte) error {
 		DxferLen:       19 * 512,
 		Dxferp:         &testbuf[0],
 	}
-
-	// log.Printf("Test %#v", testbuf)
 
 	if err := sgio.SgioSyscall(f, ioHdr); err != nil {
 		return err
@@ -189,7 +182,6 @@ func sendReadSgio(f *os.File) (pkt []byte, err error) {
 		if PktLen != 0 {
 			if *debugEnabled {
 				if pkt[12] != 0 {
-					// log.Printf("READ READ REEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE %#v", pkt)
 					fmt.Print(",")
 				} else {
 					fmt.Print(".")

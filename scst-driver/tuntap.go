@@ -25,33 +25,6 @@ func startTap() *water.Interface {
 	cmd.Wait()
 
 	return iface
-
-	// for i := 0; i < 3; i++ {
-	// 	go func() {
-	// 		for pkt := range inboundPackets {
-	// 			if pkt[12] != 0x00 {
-	// 				_, err := iface.Write(pkt[:])
-	// 				if err != nil {
-	// 					log.Fatalf("Can't write to tap device, I don't know how this happens but its likely fatal: %v", err)
-	// 				}
-	// 			}
-	// 		}
-	// 	}()
-	// }
-
-	// for i := 0; i < 3; i++ {
-	// 	go func() {
-	// 		for {
-	// 			pkt := make([]byte, 512*3)
-	// 			n, err := iface.Read(pkt[:])
-	// 			if err != nil {
-	// 				log.Fatalf("Can't read from tap device, I don't know how this happens but its likely fatal: %v", err)
-	// 			}
-
-	// 			outboundPackets <- pkt[:n]
-	// 		}
-	// 	}()
-	// }
 }
 
 var (
